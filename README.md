@@ -1,56 +1,79 @@
-# Trecento Network v0.4.2 — lazy-loaded Commons thumbnails
+# Trecento Network v0.5 — ULAN-only proof of concept
 
-This version keeps the approved interactive graph behavior and adds a deployment-time enrichment pipeline.
+This revision intentionally removes Wikipedia, Wikidata, and Wikimedia Commons from the deployment crawler.
 
-## What happens on Vercel build
+## Proof-of-concept goal
 
-`npm run build` attempts to resolve the 62 curated seed names against:
-- Wikidata
-- English + Italian Wikipedia
-- Wikipedia's own English stub categories
-- Wikimedia Commons
-- Getty ULAN
+Determine whether Getty ULAN alone can cheaply and reliably populate the initial artist identity layer.
 
-It writes `public/imported-artists.json`. If an external service is temporarily unavailable, the site
-still deploys with the seed list rather than failing completely.
+The importer makes one batched SPARQL query for the curated seed list rather than several external
+requests per artist.
 
-## What the browser does
+## Crawler telemetry
 
-- Loads `imported-artists.json`
-- Adds all imported identities to artist search
-- A searched imported artist can be materialized on the graph even if it is not a default-visible node
-- Uses routed Wikipedia link in the drawer
-- Uses real Commons thumbnails when available
-- Shows Wikidata/ULAN identity metadata and resolved dates when available
+Every crawl writes:
 
-## Important scope boundary
+- `data/crawl-status.json`
+- copied to `public/crawl-status.json`
 
-This version does NOT automatically assert workshop/influence/activity edges from prose.
-Those need the next provenance-aware extraction layer.
+The site exposes this through the **Crawl status** button.
 
-The existing core network remains a curated/prototype topology so that unreviewed identity matches cannot silently
-become historical claims.
+Recorded fields include:
+- run ID
+- start/completion time
+- duration
+- seed count
+- matched/unmatched count
+- HTTP request count
+- retries
+- HTTP 429 throttle events
+- HTTP 503 events
+- other HTTP errors
+- unmatched seed names
+- fatal error, if any
 
-## Deploy
+This is the prototype for the eventual backend observability tables.
 
-Replace the repository contents with this package, commit to `main`, and Vercel should redeploy automatically.
+## Planned database observability
 
+When the persistent database is added, use at least:
 
-## v0.4.1 deployment fix
-The importer now:
-- spaces external API requests
-- retries HTTP 429/503 responses with exponential backoff
-- respects Retry-After when supplied
-- continues past an individual failed artist/service instead of aborting the deployment
-- adds extra delay between artists for Vercel shared-IP rate limits
+`crawl_runs`
+- crawl_run_id
+- source
+- started_at
+- completed_at
+- requested_count
+- success_count
+- failure_count
+- throttle_count
+- retry_count
+- status
 
+`source_request_events`
+- crawl_run_id
+- source
+- endpoint
+- artist/entity key
+- requested_at
+- response_status
+- retry_after
+- latency_ms
+- attempt_number
 
-## v0.4.2 scaling change
-Commons thumbnails are no longer fetched during the Vercel build.
+`artist_enrichment_status`
+- artist_id
+- source
+- last_success_at
+- last_attempt_at
+- next_eligible_at
+- failure_count
+- last_http_status
+- enrichment_state
 
-The importer now stores only the artist's Commons category. When a user selects an artist,
-the browser requests that artist's thumbnails directly from Wikimedia Commons, then caches
-the result in memory for the rest of that browsing session.
+That makes throttling visible and also lets incremental Wikipedia enrichment pause/resume intelligently.
 
-This materially reduces deployment-time API traffic and makes the site scale better to hundreds
-or thousands of artist records.
+## Future Wikipedia strategy
+
+Wikipedia/Wikidata enrichment should be slow and incremental against the persistent database, not part
+of Vercel deployment. Commons thumbnails should remain lazy-loaded only when an artist is selected.

@@ -1,10 +1,10 @@
 {
   "name": "trecento-network",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "scripts": {
     "dev": "serve public",
-    "import:data": "node scripts/import-scale-test.mjs",
+    "import:ulan": "node scripts/import-ulan.mjs",
     "build": "node scripts/build-site.mjs"
   },
   "devDependencies": {
