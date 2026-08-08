@@ -29,7 +29,7 @@ try {
       seed_name:x.seed_name,
       canonical_name:x.seed_name,
       wikipedia:{preferred:null},
-      commons:{category:null,images:[]},
+      commons:{category:null},
       wikidata:{},
       ulan:{candidates:[]},
       review_status:"seed"

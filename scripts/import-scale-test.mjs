@@ -86,21 +86,7 @@ function entityId(entity,p){
   const v=claim(entity,p);
   return v?.id || null;
 }
-async function commonsImages(category,limit=6){
-  if(!category) return [];
-  const u=new URL(COMMONS); u.search=new URLSearchParams({
-    action:"query",generator:"categorymembers",gcmtitle:`Category:${category}`,gcmtype:"file",
-    gcmlimit:String(limit),prop:"imageinfo",iiprop:"url|extmetadata",iiurlwidth:"360",
-    format:"json",origin:"*"
-  });
-  const pages=Object.values((await getJSON(u)).query?.pages||{});
-  return pages.map(p=>{
-    const ii=p.imageinfo?.[0]||{};
-    return {title:p.title,thumb_url:ii.thumburl||ii.url||null,
-      description_url:ii.descriptionurl||null,
-      license:ii.extmetadata?.LicenseShortName?.value||null};
-  }).filter(x=>x.thumb_url);
-}
+
 async function ulanSearch(name){
   const escaped=name.replaceAll("\\","\\\\").replaceAll('"','\\"');
   const q=`PREFIX skos:<http://www.w3.org/2004/02/skos/core#>
@@ -145,10 +131,6 @@ async function main(){
       const label=entity?.labels?.en?.value || entity?.labels?.it?.value || name;
       const description=entity?.descriptions?.en?.value || entity?.descriptions?.it?.value || null;
 
-      let images=[];
-      try { images=await commonsImages(commons,6); }
-      catch(e){ console.warn(`Commons failed for ${name}: ${e.message}`); }
-
       let ulanCandidates=[];
       try { ulanCandidates=await ulanSearch(name); }
       catch(e){ console.warn(`ULAN failed for ${name}: ${e.message}`); }
@@ -163,7 +145,7 @@ async function main(){
           birth_year, death_year, inception_year, floruit_start, floruit_end
         },
         wikipedia:{en,it,preferred},
-        commons:{category:commons,images},
+        commons:{category:commons},
         ulan:{candidates:ulanCandidates},
         review_status:"unreviewed"
       });
@@ -175,7 +157,7 @@ async function main(){
         description:null,
         wikidata:{qid:null,candidates:[]},
         wikipedia:{en:null,it:null,preferred:null},
-        commons:{category:null,images:[]},
+        commons:{category:null},
         ulan:{candidates:[]},
         review_status:"import_failed",
         import_error:e.message

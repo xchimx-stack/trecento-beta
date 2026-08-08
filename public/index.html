@@ -418,12 +418,16 @@ function populateDrawer(a){
       document.getElementById('wikiLink').textContent=`Wikipedia (${rec.wikipedia.preferred.language==="en"?"English":"Italian"}) ↗`;
     }
     const thumbs=document.querySelector('.thumbs');
-    const images=(rec.commons?.images||[]).slice(0,4);
-    if(images.length){
-      thumbs.innerHTML=images.map(im=>`<a class="thumb" href="${im.description_url || "#"}" target="_blank" rel="noreferrer" style="padding:0"><img src="${im.thumb_url}" alt="${(im.title||a.full).replaceAll('"','&quot;')}" style="width:100%;height:100%;object-fit:cover"></a>`).join('');
+    thumbs.innerHTML='<div class="thumb">Loading Commons images…</div><div class="thumb"></div><div class="thumb"></div><div class="thumb"></div>';
+    if(rec.commons?.category){
+      loadCommonsImages(rec.commons.category, a.full, thumbs);
+    } else {
+      thumbs.innerHTML='<div class="thumb">No Commons category resolved</div>';
     }
   } else {
     db.textContent='No enriched database match in this build.';
+    const thumbs=document.querySelector('.thumbs');
+    thumbs.innerHTML='<div class="thumb">No Commons images available</div>';
   }
 }
 
@@ -539,6 +543,60 @@ function ensureImportedArtist(rec){
   };
   artists.push(a);
   return a;
+}
+
+
+const commonsImageCache=new Map();
+
+async function loadCommonsImages(category, artistName, container){
+  if(commonsImageCache.has(category)){
+    renderCommonsImages(commonsImageCache.get(category), artistName, container);
+    return;
+  }
+  try{
+    const u=new URL('https://commons.wikimedia.org/w/api.php');
+    u.search=new URLSearchParams({
+      action:'query',
+      generator:'categorymembers',
+      gcmtitle:`Category:${category}`,
+      gcmtype:'file',
+      gcmlimit:'6',
+      prop:'imageinfo',
+      iiprop:'url|extmetadata',
+      iiurlwidth:'360',
+      format:'json',
+      origin:'*'
+    });
+    const r=await fetch(u.toString());
+    if(!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    const j=await r.json();
+    const pages=Object.values(j.query?.pages||{});
+    const images=pages.map(p=>{
+      const ii=p.imageinfo?.[0]||{};
+      return {
+        title:p.title,
+        thumb_url:ii.thumburl||ii.url||null,
+        description_url:ii.descriptionurl||null,
+        license:ii.extmetadata?.LicenseShortName?.value||null
+      };
+    }).filter(x=>x.thumb_url);
+    commonsImageCache.set(category,images);
+    renderCommonsImages(images, artistName, container);
+  }catch(e){
+    container.innerHTML='<div class="thumb">Commons images unavailable</div>';
+  }
+}
+
+function renderCommonsImages(images, artistName, container){
+  if(!images.length){
+    container.innerHTML='<div class="thumb">No Commons images found</div>';
+    return;
+  }
+  container.innerHTML=images.slice(0,6).map(im=>
+    `<a class="thumb" href="${im.description_url || '#'}" target="_blank" rel="noreferrer" style="padding:0">
+      <img loading="lazy" src="${im.thumb_url}" alt="${(im.title||artistName).replaceAll('"','&quot;')}" style="width:100%;height:100%;object-fit:cover">
+    </a>`
+  ).join('');
 }
 
 async function loadImportedDatabase(){
