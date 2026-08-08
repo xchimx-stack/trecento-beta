@@ -1,27 +1,57 @@
-# Trecento Network v0.5.3 — readability and ULAN relationship pass
+# Trecento Network v0.6 — anchor expansion + directional relationships
 
-This revision focuses on readability and ULAN relationship handling.
+This revision implements the interaction/layout rules agreed before persistent-database work.
 
-## Layout
-- vertical chronology remains primary
-- regional/school territories are elastic, not equal-width
-- width grows with the number of artists assigned to the region
-- collision avoidance spreads contemporaries
-- major anchors receive larger exclusion zones
-- Giotto and Duccio receive extra spacing when needed
-- the canvas becomes wider as density requires
+## Hard-coded regional anchors
 
-## ULAN relationship mapping
-- teacher / student / employee / workshop-style membership -> solid
-- worked with / collaborator / partner / explicit influence -> dashed
-- parent / child / sibling / brother / sister -> dotted
+- Florence — Giotto
+- Siena — Duccio
+- Rome — Pietro Cavallini
+- Veneto — Paolo Veneziano
+- Bologna — Vitale da Bologna
+- Rimini — Giovanni da Rimini
 
-Family alone therefore creates a baseline general-influence edge.
-Stronger evidence upgrades the visible edge with precedence:
+These are visual starting anchors, not claims that each artist is literally the sole founder of the regional tradition.
 
-solid > dashed > dotted
+## Organic layout
 
-Multiple pieces of evidence are retained behind the displayed edge.
+Regions are no longer equal columns. Each region gets an elastic horizontal territory whose width grows with artist density.
 
-## Scope
-No new seed artists were added. This is still the same proof population so we can judge readability before expansion or persistent-database work.
+Artists fan around the regional anchor while chronology remains vertical. Collision avoidance spreads contemporaries horizontally.
+
+No visible region boxes are drawn.
+
+## ULAN expansion
+
+The importer still begins with the curated seed list, but now performs a **one-degree expansion from the hard-coded regional anchors**.
+
+If an anchor's ULAN record names a related artist not already in the seed population, that related ULAN record is added to the proof dataset and enriched.
+
+This is specifically intended to test how real relationship density behaves before recursive expansion.
+
+## Relationship mapping and arrows
+
+### Solid
+teacher → pupil / workshop follower  
+employee/workshop relationships where direction is known
+
+### Dashed
+documented influence → influenced artist  
+collaboration / partnership stays undirected when ULAN does not imply direction
+
+### Dotted
+parent → child  
+siblings/family associations remain undirected
+
+Family alone is a baseline general-influence relationship. Stronger evidence upgrades the edge:
+solid > dashed > dotted.
+
+All source evidence remains retained behind the displayed edge.
+
+## Selection behavior
+
+- selected node remains light red
+- all directly connected nodes remain fully opaque
+- all directly connected edges remain fully opaque
+- unrelated graph context fades
+- selection does not change zoom

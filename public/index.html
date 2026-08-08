@@ -111,15 +111,21 @@
   </div>
   <div id="suggestions"></div>
   <div id="legend">
-    <div>━━▶ pupil / workshop</div>
-    <div>– –▶ collaborator / direct influence</div>
-    <div>····▶ general influence</div>
+    <div>━━▶ pupil / workshop (directional when known)</div>
+    <div>– –▶ direct influence; – – collaboration if undirected</div>
+    <div>····▶ parent→child / directional influence; ···· family if undirected</div>
     <div style="margin-top:4px">soft wash = selected artist’s activity in that regional/time field · light red = selected artist · up to 9 strongest minor connections appear · ADDITIONAL opens the rest · time runs top → bottom</div>
   </div>
 
   <svg id="canvas" viewBox="0 0 1600 1250" aria-label="Trecento artist network mockup">
     <defs>
-      <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+      <marker id="arrow-solid" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L8,4 L0,8 z" fill="#2c2c2c"></path>
+      </marker>
+      <marker id="arrow-dashed" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L8,4 L0,8 z" fill="#2c2c2c"></path>
+      </marker>
+      <marker id="arrow-dotted" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
         <path d="M0,0 L8,4 L0,8 z" fill="#2c2c2c"></path>
       </marker>
     </defs>
@@ -244,11 +250,22 @@ const artists = [
 ]
 
 let importedDatabase={artists:[],relationships:[]};
+let relationshipMeta=new Map();
 let importedByName=new Map();
 let importedGraphLoaded=false;
 
 
-const regionOrder=["Florence","Siena","Rome","Bologna","Rimini","Naples","Veneto","Unclassified Italy"];
+
+const anchorSpecs={
+  "Florence":{name:"Giotto",x:430},
+  "Siena":{name:"Duccio",x:980},
+  "Rome":{name:"Pietro Cavallini",x:1510},
+  "Bologna":{name:"Vitale da Bologna",x:2020},
+  "Rimini":{name:"Giovanni da Rimini",x:2470},
+  "Veneto":{name:"Paolo Veneziano",x:2970},
+  "Naples":{name:null,x:3420},
+  "Unclassified Italy":{name:null,x:3800}
+};
 
 function yForYear(year){
   const min=1250,max=1480,top=70,bottom=1180;
@@ -256,80 +273,9 @@ function yForYear(year){
   return top+((y-min)/(max-min))*(bottom-top);
 }
 
-function computeElasticRegionLayout(records){
-  const counts={};
-  for(const rec of records){
-    const r=rec.layout?.region || "Unclassified Italy";
-    counts[r]=(counts[r]||0)+1;
-  }
-
-  const minWidth=230;
-  const perNodeWidth=48;
-  const gap=70;
-  let cursor=150;
-  const regions={};
-
-  for(const region of regionOrder){
-    const count=counts[region]||0;
-    if(!count) continue;
-    const width=Math.max(minWidth,170+count*perNodeWidth);
-    regions[region]={left:cursor,right:cursor+width,width,center:cursor+width/2};
-    cursor += width + gap;
-  }
-
-  return {regions,worldWidth:Math.max(1600,cursor+180)};
-}
-
-function layoutRegionNodes(records, territory, majorNames){
-  const placed=[];
-  const nodes=[];
-  const sorted=[...records].sort((a,b)=>
-    (a.layout?.year||1350)-(b.layout?.year||1350) ||
-    String(a.canonical_name||a.seed_name).localeCompare(String(b.canonical_name||b.seed_name))
-  );
-
-  for(const rec of sorted){
-    const name=(rec.canonical_name||rec.seed_name).toLowerCase();
-    const major=majorNames.has(name);
-    const radius=major?58:34;
-    const exclusion=major?120:78;
-    const baseY=yForYear(rec.layout?.year||1350);
-
-    const candidateXs=[];
-    const step=85;
-    candidateXs.push(territory.center);
-    for(let i=1;i<20;i++){
-      candidateXs.push(territory.center-i*step);
-      candidateXs.push(territory.center+i*step);
-    }
-
-    let best=null;
-    for(const x of candidateXs){
-      if(x<territory.left+radius || x>territory.right-radius) continue;
-      for(const yOffset of [0,-30,30,-60,60,-90,90]){
-        const y=baseY+yOffset;
-        const collides=placed.some(p=>{
-          const dx=x-p.x,dy=y-p.y;
-          return Math.hypot(dx,dy)<Math.max(exclusion,p.exclusion);
-        });
-        if(!collides){best={x,y};break;}
-      }
-      if(best) break;
-    }
-
-    if(!best){
-      const idx=placed.length;
-      best={
-        x:territory.left+45+(idx*97)%Math.max(100,territory.width-90),
-        y:baseY+((idx%5)-2)*34
-      };
-    }
-
-    placed.push({...best,exclusion});
-    nodes.push({rec,x:best.x,y:best.y,major});
-  }
-
-  return nodes;
+function regionForRecord(rec){
+  if(rec.anchor_region) return rec.anchor_region;
+  return rec.layout?.region || "Unclassified Italy";
 }
 
 function materializeImportedGraph(){
@@ -337,25 +283,87 @@ function materializeImportedGraph(){
   importedGraphLoaded=true;
 
   const records=importedDatabase.artists||[];
-  const {regions,worldWidth}=computeElasticRegionLayout(records);
+  const byRegion={};
+  for(const rec of records){
+    const r=regionForRecord(rec);
+    (byRegion[r]||(byRegion[r]=[])).push(rec);
+  }
+
+  // Widths expand with density, but regions are not drawn as boxes/columns.
+  let cursor=220;
+  const regionCenters={};
+  const regionWidths={};
+  const regionOrder=["Florence","Siena","Rome","Bologna","Rimini","Veneto","Naples","Unclassified Italy"];
+
+  for(const region of regionOrder){
+    const count=(byRegion[region]||[]).length;
+    if(!count) continue;
+    const width=Math.max(420,260+count*62);
+    regionWidths[region]=width;
+    regionCenters[region]=cursor+width/2;
+    cursor += width+130;
+  }
+  const worldWidth=Math.max(1800,cursor+220);
   canvas.setAttribute("viewBox",`0 0 ${worldWidth} 1250`);
 
   const majorNames=new Set([
     "giotto","giotto di bondone","duccio","duccio di buoninsegna",
-    "simone martini","pietro lorenzetti","ambrogio lorenzetti",
-    "orcagna","andrea di cione","paolo veneziano"
+    "pietro cavallini","paolo veneziano","vitale da bologna","giovanni da rimini",
+    "simone martini","pietro lorenzetti","ambrogio lorenzetti","orcagna","andrea di cione"
   ]);
 
-  const byRegion={};
-  for(const rec of records){
-    const r=rec.layout?.region||"Unclassified Italy";
-    (byRegion[r]||(byRegion[r]=[])).push(rec);
-  }
-
   const generated=[];
-  for(const [region,recs] of Object.entries(byRegion)){
-    const territory=regions[region];
-    if(territory) generated.push(...layoutRegionNodes(recs,territory,majorNames));
+
+  for(const region of regionOrder){
+    const recs=[...(byRegion[region]||[])];
+    if(!recs.length) continue;
+    const center=regionCenters[region];
+    const width=regionWidths[region];
+
+    // Put the named anchor near the top/center of its territory.
+    const anchorName=(anchorSpecs[region]?.name||"").toLowerCase();
+    const anchorRec=recs.find(r=>
+      String(r.canonical_name||r.seed_name).toLowerCase().includes(anchorName)
+    );
+
+    const others=recs.filter(r=>r!==anchorRec).sort((a,b)=>
+      (a.layout?.year||1350)-(b.layout?.year||1350)
+    );
+
+    if(anchorRec){
+      generated.push({
+        rec:anchorRec,
+        x:center,
+        y:yForYear(anchorRec.layout?.year||1300),
+        major:true
+      });
+    }
+
+    // Fan artists around the anchor/region center while keeping chronology vertical.
+    const lanes=[0,-1,1,-2,2,-3,3,-4,4];
+    const laneStep=Math.max(90,Math.min(145,width/7));
+    const placed=[];
+
+    for(let i=0;i<others.length;i++){
+      const rec=others[i];
+      const major=majorNames.has(String(rec.canonical_name||rec.seed_name).toLowerCase());
+      const baseY=yForYear(rec.layout?.year||1350);
+      let lane=lanes[i%lanes.length];
+      let ring=Math.floor(i/lanes.length);
+      let x=center + lane*laneStep + (ring%2?laneStep*.35:-laneStep*.35);
+      let y=baseY + ((i%5)-2)*22;
+
+      // Basic collision avoidance within region.
+      for(let tries=0;tries<24;tries++){
+        const minDist=major?125:82;
+        const clash=placed.some(p=>Math.hypot(x-p.x,y-p.y)<Math.max(minDist,p.minDist));
+        if(!clash) break;
+        x += (tries%2===0?1:-1)*(laneStep*.45 + tries*4);
+        y += ((tries%3)-1)*18;
+      }
+      placed.push({x,y,minDist:major?125:82});
+      generated.push({rec,x,y,major});
+    }
   }
 
   for(const g of generated){
@@ -368,7 +376,7 @@ function materializeImportedGraph(){
       a.ulan_id=rec.ulan?.id||null;
       a.year=rec.layout?.year||a.year;
       a.x=g.x;a.y=g.y;
-      a.school=rec.layout?.region||a.school;
+      a.school=regionForRecord(rec);
       a.imported=true;
       a.importance=g.major?1.35:Math.max(.82,a.importance||.82);
     }else{
@@ -377,22 +385,15 @@ function materializeImportedGraph(){
         ulan_id:rec.ulan?.id||null,
         name:rec.canonical_name||rec.seed_name,
         full:rec.canonical_name||rec.seed_name,
-        school:rec.layout?.region||"Unclassified Italy",
+        school:regionForRecord(rec),
         year:rec.layout?.year||1350,
         x:g.x,y:g.y,
-        importance:g.major?1.25:.82,
+        importance:g.major?1.22:.80,
         wiki:"",
         activity:[],
         imported:true
       });
     }
-  }
-
-  const giotto=artists.find(a=>a.full.toLowerCase().includes("giotto"));
-  const duccio=artists.find(a=>a.full.toLowerCase().includes("duccio"));
-  if(giotto && duccio && Math.abs(duccio.x-giotto.x)<360){
-    giotto.x-=90;
-    duccio.x+=90;
   }
 
   const strength={solid:3,dashed:2,dotted:1};
@@ -401,11 +402,23 @@ function materializeImportedGraph(){
     const b=artists.find(x=>x.ulan_id===r.to_ulan);
     if(!a||!b) continue;
 
+    const key=[a.id,b.id].sort().join("|");
+    relationshipMeta.set(key,{
+      directed:Boolean(r.directed),
+      from:a.id,
+      to:b.id,
+      style:r.style||"dotted",
+      meaning:r.meaning||"general influence",
+      evidence:r.evidence||[]
+    });
+
     const existing=relationships.find(x=>
       (x[0]===a.id&&x[1]===b.id)||(x[0]===b.id&&x[1]===a.id)
     );
     if(existing){
       if((strength[r.style]||0)>(strength[existing[2]]||0)){
+        existing[0]=a.id;
+        existing[1]=b.id;
         existing[2]=r.style;
         existing[3]=r.meaning||existing[3];
       }
@@ -510,23 +523,49 @@ function render(){
     });
   }
 
+
+  const connectedIds=new Set();
+  if(state.selected){
+    for(const r of relationships){
+      if(r[0]===state.selected) connectedIds.add(r[1]);
+      if(r[1]===state.selected) connectedIds.add(r[0]);
+    }
+  }
+
   relationships.forEach(r=>{
     const a=artists.find(x=>x.id===r[0]), b=artists.find(x=>x.id===r[1]);
     if(!a||!b || !visibleArtistIds.has(a.id) || !visibleArtistIds.has(b.id)) return;
+
+    const pairKey=[a.id,b.id].sort().join("|");
+    const meta=relationshipMeta.get(pairKey);
+    const isConnected=state.selected && (r[0]===state.selected || r[1]===state.selected);
+    const cls=`edge ${r[2]==='dashed'?'dashed':r[2]==='dotted'?'dotted':''} ${state.selected && !isConnected?'faded':''}`;
+
+    let x1=a.x,y1=a.y,x2=b.x,y2=b.y;
+    let marker=null;
+
+    if(meta?.directed){
+      const from=artists.find(x=>x.id===meta.from);
+      const to=artists.find(x=>x.id===meta.to);
+      if(from&&to){x1=from.x;y1=from.y;x2=to.x;y2=to.y;}
+      marker = meta.style==='solid' ? 'url(#arrow-solid)' :
+               meta.style==='dashed' ? 'url(#arrow-dashed)' :
+               'url(#arrow-dotted)';
+    }
+
     const l=svgEl('line',{
-      x1:a.x,y1:a.y,x2:b.x,y2:b.y,
-      class:`edge ${r[2]==='dashed'?'dashed':r[2]==='dotted'?'dotted':''} ${state.selected?'faded':''}`,
-      'marker-end':'url(#arrow)'
+      x1,y1,x2,y2,
+      class:cls
     });
-    if(state.selected && (r[0]===state.selected || r[1]===state.selected)) l.classList.remove('faded');
-    if(state.selected==='bernardo' && (r[0]==='maestro-daddesco' || r[1]==='maestro-daddesco')) l.classList.remove('faded');
+    if(marker) l.setAttribute('marker-end',marker);
     world.appendChild(l);
   });
 
   artists.forEach(a=>{
     if(!visibleArtistIds.has(a.id)) return;
     const revealedMinor = a.minor && revealedMinorIds.has(a.id);
-    const shouldFade = state.selected && state.selected!==a.id && !revealedMinor;
+    const isNeighbor = state.selected && connectedIds.has(a.id);
+    const shouldFade = state.selected && state.selected!==a.id && !revealedMinor && !isNeighbor;
     const g=svgEl('g',{class:`node ${shouldFade?'faded':''}`,transform:`translate(${a.x} ${a.y})`});
     if(state.selected===a.id) g.classList.add('selected');
     if(revealedMinor) g.style.opacity = '0.78';
