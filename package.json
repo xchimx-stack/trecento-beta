@@ -1,16 +1,13 @@
 {
   "name": "trecento-network",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "import:data": "node scripts/import-data.mjs"
+    "dev": "serve public",
+    "import:data": "node scripts/import-scale-test.mjs",
+    "build": "node scripts/build-static.mjs"
   },
-  "dependencies": {
-    "next": "16.3.0",
-    "react": "19.2.0",
-    "react-dom": "19.2.0"
+  "devDependencies": {
+    "serve": "14.2.4"
   }
 }

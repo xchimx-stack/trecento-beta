@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trecento Network Mockup</title>
+<style>
+  :root{
+    --bg:#fff;
+    --ink:#1d1d1f;
+    --muted:#717171;
+    --faint:#d9d9d9;
+    --wash:rgba(30,30,30,.06);
+    --wash2:rgba(30,30,30,.10);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);font-family:Inter,Arial,sans-serif;color:var(--ink)}
+  #app{position:relative;width:100vw;height:100vh;background:#fff}
+  #toolbar{
+    position:absolute;left:18px;top:18px;z-index:20;
+    display:flex;gap:8px;align-items:center
+  }
+  #search{
+    width:280px;padding:10px 12px;border:1px solid #cfcfcf;border-radius:10px;
+    background:#fff;font-size:14px;box-shadow:0 2px 10px rgba(0,0,0,.04)
+  }
+  .btn{
+    border:1px solid #cfcfcf;background:#fff;border-radius:10px;padding:9px 11px;
+    font-size:13px;cursor:pointer
+  }
+  #legend{
+    position:absolute;right:18px;top:18px;z-index:20;
+    background:rgba(255,255,255,.92);border:1px solid #e2e2e2;border-radius:10px;
+    padding:9px 11px;font-size:12px;color:#555;line-height:1.55
+  }
+  #canvas{width:100%;height:100%;display:block;cursor:grab}
+  #canvas.dragging{cursor:grabbing}
+  .edge{stroke:#2c2c2c;stroke-width:1.8;fill:none;opacity:.62}
+  .edge.dashed{stroke-dasharray:8 7}
+  .edge.dotted{stroke-dasharray:2 7}
+  .node{cursor:pointer}
+  .node circle{fill:#fff;stroke:#222;stroke-width:2}
+  .node text{fill:#222;font-size:13px;font-weight:600;pointer-events:none}
+  .node .sub{fill:#666;font-size:10px;font-weight:400}
+  .node.selected circle{stroke-width:3.5;fill:#f3c7c7;stroke:#8e3b3b}
+  .node.additional circle{fill:#f4f4f4;stroke:#555;stroke-width:2.4}
+  .node.additional text{font-size:10px;letter-spacing:.06em}
+  .faded{opacity:.14!important}
+  .neighbor{opacity:.55!important}
+  .wash{fill:var(--wash);stroke:none}
+  .wash-label{fill:#555;font-size:12px;font-weight:600}
+  .wash-sub{fill:#7d7d7d;font-size:10px}
+  #drawer{
+    position:absolute;left:18px;top:74px;bottom:18px;width:350px;z-index:30;
+    background:#fff;border:1px solid #dedede;border-radius:12px;
+    box-shadow:0 8px 28px rgba(0,0,0,.10);
+    transform:translateX(-390px);transition:transform .22s ease;
+    overflow:auto
+  }
+  #drawer.open{transform:translateX(0)}
+  .drawer-inner{padding:18px}
+  #closeDrawer{float:right;border:0;background:transparent;font-size:22px;cursor:pointer;color:#666}
+  h2{font-size:24px;margin:0 0 4px;font-weight:650}
+  .meta{font-size:13px;color:#777;margin-bottom:14px}
+  .section{margin-top:18px}
+  .section h3{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:#777;margin:0 0 8px}
+  .row{padding:8px 0;border-top:1px solid #ececec;font-size:13px;line-height:1.4}
+  .thumbs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .thumb{
+    aspect-ratio:4/3;border:1px solid #e4e4e4;border-radius:8px;background:#f5f5f5;
+    display:flex;align-items:center;justify-content:center;text-align:center;
+    color:#8b8b8b;font-size:11px;padding:8px
+  }
+  .wiki{
+    display:inline-block;margin-top:10px;padding:7px 10px;border:1px solid #cfcfcf;border-radius:999px;
+    color:#222;text-decoration:none;font-size:13px
+  }
+  #status{
+    position:absolute;right:18px;bottom:16px;z-index:20;font-size:11px;color:#8a8a8a;
+    background:rgba(255,255,255,.85);padding:5px 7px;border-radius:6px
+  }
+  #overflowDrawer{
+    position:absolute;right:18px;top:74px;bottom:18px;width:300px;z-index:31;
+    background:#fff;border:1px solid #dedede;border-radius:12px;
+    box-shadow:0 8px 28px rgba(0,0,0,.10);
+    transform:translateX(340px);transition:transform .22s ease;overflow:auto
+  }
+  #overflowDrawer.open{transform:translateX(0)}
+  .overflow-inner{padding:18px}
+  #closeOverflow{float:right;border:0;background:transparent;font-size:22px;cursor:pointer;color:#666}
+  .overflow-item{display:block;width:100%;text-align:left;border:0;border-top:1px solid #ececec;background:#fff;padding:10px 2px;cursor:pointer;font-size:13px}
+  .overflow-item:hover{background:#f7f7f7}
+  #suggestions{
+    position:absolute;left:18px;top:62px;width:280px;z-index:40;background:#fff;
+    border:1px solid #d8d8d8;border-radius:10px;display:none;overflow:hidden;
+    box-shadow:0 5px 16px rgba(0,0,0,.08)
+  }
+  #suggestions button{
+    display:block;width:100%;text-align:left;border:0;background:#fff;padding:9px 11px;cursor:pointer;font-size:13px
+  }
+  #suggestions button:hover{background:#f5f5f5}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <input id="search" type="text" placeholder="Jump to an artist…" autocomplete="off">
+    <button class="btn" id="homeBtn">Overview</button>
+  </div>
+  <div id="suggestions"></div>
+  <div id="legend">
+    <div>━━▶ pupil / workshop</div>
+    <div>– –▶ collaborator / direct influence</div>
+    <div>····▶ general influence</div>
+    <div style="margin-top:4px">soft wash = selected artist’s activity in that regional/time field · light red = selected artist · up to 9 strongest minor connections appear · ADDITIONAL opens the rest · time runs top → bottom</div>
+  </div>
+
+  <svg id="canvas" viewBox="0 0 1600 1250" aria-label="Trecento artist network mockup">
+    <defs>
+      <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L8,4 L0,8 z" fill="#2c2c2c"></path>
+      </marker>
+    </defs>
+    <g id="world"></g>
+  </svg>
+
+  <aside id="drawer">
+    <div class="drawer-inner">
+      <button id="closeDrawer" aria-label="Close">×</button>
+      <h2 id="dName"></h2>
+      <div id="dMeta" class="meta"></div>
+
+      <div class="section">
+        <h3>Representative works · Wikimedia Commons</h3>
+        <div class="thumbs">
+          <div class="thumb">Commons image<br>populated in live build</div>
+          <div class="thumb">Commons image<br>populated in live build</div>
+          <div class="thumb">Commons image<br>populated in live build</div>
+          <div class="thumb">Commons image<br>populated in live build</div>
+        </div>
+        <a id="wikiLink" class="wiki" target="_blank" rel="noreferrer">Wikipedia ↗</a>
+      </div>
+
+      <div class="section">
+        <h3>Activity</h3>
+        <div id="dActivity"></div>
+      </div>
+
+      <div class="section">
+        <h3>Connections</h3>
+        <div id="dConnections"></div>
+      </div>
+
+      <div class="section">
+        <h3>Method</h3>
+        <div class="row" style="border-top:0;color:#777">
+          Activity washes show where an artist was active relative to the network. They do not assert influence unless an explicit edge does so.
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <aside id="overflowDrawer">
+    <div class="overflow-inner">
+      <button id="closeOverflow" aria-label="Close">×</button>
+      <h2 style="font-size:19px">Additional connections</h2>
+      <div class="meta">Lower-ranked connections hidden from the immediate graph.</div>
+      <div id="overflowList"></div>
+    </div>
+  </aside>
+
+  <div id="status">Earlier at top · later below · drag to pan · wheel to zoom</div>
+</div>
+
+<script>
+const artists = [
+  {id:'giotto',name:'Giotto',full:'Giotto di Bondone',school:'Florence',year:1310,x:520,y:190,importance:1.4,wiki:'https://en.wikipedia.org/wiki/Giotto',activity:[
+    {place:'Padua',label:'c. 1303–1305',x:1230,y:245,rx:135,ry:76},
+    {place:'Rome',label:'documented activity',x:355,y:175,rx:105,ry:62},
+    {place:'Assisi',label:'activity / attribution',x:650,y:295,rx:115,ry:65}
+  ]},
+  {id:'duccio',name:'Duccio',full:'Duccio di Buoninsegna',school:'Siena',year:1300,x:930,y:155,importance:1.35,wiki:'https://en.wikipedia.org/wiki/Duccio',activity:[
+    {place:'Florence',label:'late 13th c. commission/activity',x:650,y:145,rx:125,ry:72},
+    {place:'Siena',label:'principal activity',x:930,y:155,rx:145,ry:82}
+  ]},
+  {id:'simone',name:'Simone Martini',full:'Simone Martini',school:'Siena',year:1332,x:1025,y:375,importance:1.25,wiki:'https://en.wikipedia.org/wiki/Simone_Martini',activity:[
+    {place:'Assisi',label:'early 14th c.',x:850,y:350,rx:110,ry:65},
+    {place:'Naples',label:'1310s',x:1140,y:300,rx:105,ry:62},
+    {place:'Avignon',label:'1330s–1344',x:1180,y:415,rx:125,ry:70}
+  ]},
+  {id:'bernardo',name:'Bernardo Daddi',full:'Bernardo Daddi',school:'Florence',year:1335,x:410,y:405,importance:1.0,wiki:'https://en.wikipedia.org/wiki/Bernardo_Daddi',activity:[]},
+  {id:'artist-1',name:'Artist 1',full:'Artist 1',school:'Florence',year:1314,x:250,y:245,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-2',name:'Artist 2',full:'Artist 2',school:'Florence',year:1316,x:330,y:275,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-3',name:'Artist 3',full:'Artist 3',school:'Florence',year:1318,x:440,y:300,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-4',name:'Artist 4',full:'Artist 4',school:'Florence',year:1320,x:560,y:325,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-5',name:'Artist 5',full:'Artist 5',school:'Florence',year:1322,x:675,y:350,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-6',name:'Artist 6',full:'Artist 6',school:'Florence',year:1324,x:280,y:380,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-7',name:'Artist 7',full:'Artist 7',school:'Florence',year:1326,x:390,y:410,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-8',name:'Artist 8',full:'Artist 8',school:'Florence',year:1328,x:520,y:435,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-9',name:'Artist 9',full:'Artist 9',school:'Florence',year:1330,x:660,y:465,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-10',name:'Artist 10',full:'Artist 10',school:'Florence',year:1332,x:235,y:505,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-11',name:'Artist 11',full:'Artist 11',school:'Florence',year:1334,x:355,y:535,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-12',name:'Artist 12',full:'Artist 12',school:'Florence',year:1336,x:485,y:560,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-13',name:'Artist 13',full:'Artist 13',school:'Florence',year:1338,x:620,y:585,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-14',name:'Artist 14',full:'Artist 14',school:'Florence',year:1340,x:300,y:620,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-15',name:'Artist 15',full:'Artist 15',school:'Florence',year:1342,x:430,y:650,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-16',name:'Artist 16',full:'Artist 16',school:'Florence',year:1344,x:560,y:675,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-17',name:'Artist 17',full:'Artist 17',school:'Florence',year:1346,x:690,y:700,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'artist-18',name:'Artist 18',full:'Artist 18',school:'Florence',year:1348,x:365,y:735,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+  {id:'maestro-daddesco',name:'Maestro Daddesco',full:'Maestro Daddesco',school:'Florence',year:1340,x:275,y:500,importance:.82,wiki:'',activity:[],minor:true,revealWith:['bernardo']},
+  {id:'orcagna',name:'Orcagna',full:'Andrea di Cione (Orcagna)',school:'Florence',year:1355,x:640,y:520,importance:1.15,wiki:'https://en.wikipedia.org/wiki/Orcagna',activity:[]},
+  {id:'pietro',name:'Pietro Lorenzetti',full:'Pietro Lorenzetti',school:'Siena',year:1328,x:860,y:350,importance:1.05,wiki:'https://en.wikipedia.org/wiki/Pietro_Lorenzetti',activity:[
+    {place:'Assisi',label:'early 14th c.',x:760,y:340,rx:105,ry:62}
+  ]},
+  {id:'ambrogio',name:'Ambrogio Lorenzetti',full:'Ambrogio Lorenzetti',school:'Siena',year:1338,x:930,y:430,importance:1.15,wiki:'https://en.wikipedia.org/wiki/Ambrogio_Lorenzetti',activity:[
+    {place:'Florence',label:'early 14th c.',x:650,y:425,rx:115,ry:68}
+  ]},
+  {id:'taddeo',name:'Taddeo Gaddi',full:'Taddeo Gaddi',school:'Florence',year:1342,x:520,y:455,importance:1.05,wiki:'https://en.wikipedia.org/wiki/Taddeo_Gaddi',activity:[]},
+  {id:'agnolo',name:'Agnolo Gaddi',full:'Agnolo Gaddi',school:'Florence',year:1382,x:470,y:690,importance:.95,wiki:'https://en.wikipedia.org/wiki/Agnolo_Gaddi',activity:[
+    {place:'Prato',label:'late 14th c.',x:590,y:705,rx:105,ry:62}
+  ]},
+  {id:'paolo-veneziano',name:'Paolo Veneziano',full:'Paolo Veneziano',school:'Venice',year:1338,x:1240,y:425,importance:1.08,wiki:'https://en.wikipedia.org/wiki/Paolo_Veneziano',activity:[
+    {place:'Venice',label:'documented active 1333–1358',x:1240,y:425,rx:120,ry:72}
+  ]},
+  {id:'lorenzo-veneziano',name:'Lorenzo Veneziano',full:'Lorenzo Veneziano',school:'Venice',year:1365,x:1190,y:595,importance:1.0,wiki:'https://en.wikipedia.org/wiki/Lorenzo_Veneziano',activity:[
+    {place:'Venice',label:'principal activity',x:1190,y:595,rx:120,ry:75}
+  ]},
+  {id:'lorenzo-di-bicci',name:'Lorenzo di Bicci',full:'Lorenzo di Bicci',school:'Florence',year:1395,x:610,y:780,importance:1.0,wiki:'https://en.wikipedia.org/wiki/Lorenzo_di_Bicci',activity:[]},
+  {id:'bicci-di-lorenzo',name:'Bicci di Lorenzo',full:'Bicci di Lorenzo',school:'Florence',year:1420,x:640,y:945,importance:.95,wiki:'https://en.wikipedia.org/wiki/Bicci_di_Lorenzo',activity:[]},
+  {id:'neri-di-bicci',name:'Neri di Bicci',full:'Neri di Bicci',school:'Florence',year:1460,x:670,y:1130,importance:.92,wiki:'https://en.wikipedia.org/wiki/Neri_di_Bicci',activity:[]},
+  {id:'jacopo-di-cione',name:'Jacopo di Cione',full:'Jacopo di Cione',school:'Florence',year:1370,x:770,y:625,importance:1.0,wiki:'https://en.wikipedia.org/wiki/Jacopo_di_Cione',activity:[]}
+]
+
+const relationships = [
+  ['giotto','taddeo','solid','pupil / workshop'],
+  ['giotto','bernardo','solid','pupil / workshop'],
+  ['giotto','artist-1','solid','pupil / workshop'],
+  ['giotto','artist-2','solid','pupil / workshop'],
+  ['giotto','artist-3','solid','pupil / workshop'],
+  ['giotto','artist-4','solid','pupil / workshop'],
+  ['giotto','artist-5','solid','pupil / workshop'],
+  ['giotto','artist-6','solid','pupil / workshop'],
+  ['giotto','artist-7','dashed','collaborator / direct influence'],
+  ['giotto','artist-8','dashed','collaborator / direct influence'],
+  ['giotto','artist-9','dashed','collaborator / direct influence'],
+  ['giotto','artist-10','dashed','collaborator / direct influence'],
+  ['giotto','artist-11','dashed','collaborator / direct influence'],
+  ['giotto','artist-12','dashed','collaborator / direct influence'],
+  ['giotto','artist-13','dotted','general influence'],
+  ['giotto','artist-14','dotted','general influence'],
+  ['giotto','artist-15','dotted','general influence'],
+  ['giotto','artist-16','dotted','general influence'],
+  ['giotto','artist-17','dotted','general influence'],
+  ['giotto','artist-18','dotted','general influence'],
+  ['bernardo','maestro-daddesco','dashed','direct influence'],
+  ['giotto','orcagna','dashed','direct influence'],
+  ['taddeo','agnolo','solid','pupil / workshop'],
+  ['duccio','simone','dashed','direct influence'],
+  ['duccio','pietro','dotted','general influence'],
+  ['duccio','ambrogio','dotted','general influence'],
+  ['pietro','ambrogio','dashed','collaborator / close relationship'],
+  ['orcagna','jacopo-di-cione','solid','workshop / family workshop'],
+  ['agnolo','lorenzo-di-bicci','dashed','direct influence'],
+  ['lorenzo-di-bicci','bicci-di-lorenzo','solid','pupil / workshop'],
+  ['bicci-di-lorenzo','neri-di-bicci','solid','pupil / workshop'],
+  ['simone','lorenzo-veneziano','dotted','general influence'],
+  ['paolo-veneziano','lorenzo-veneziano','dashed','direct influence / possible workshop relation']
+];
+
+const world = document.getElementById('world');
+const canvas = document.getElementById('canvas');
+const drawer = document.getElementById('drawer');
+const search = document.getElementById('search');
+const suggestions = document.getElementById('suggestions');
+
+let state = {scale:1, tx:0, ty:0, selected:null, dragging:false, sx:0, sy:0, stx:0, sty:0};
+
+function svgEl(tag, attrs={}){
+  const el=document.createElementNS('http://www.w3.org/2000/svg',tag);
+  for(const [k,v] of Object.entries(attrs)) el.setAttribute(k,v);
+  return el;
+}
+
+function render(){
+  world.innerHTML='';
+  world.setAttribute('transform',`translate(${state.tx} ${state.ty}) scale(${state.scale})`);
+
+  const priority = {solid:0, dashed:1, dotted:2};
+  const candidateMinorIds = artists
+    .filter(a => a.minor && (a.revealWith || []).includes(state.selected))
+    .map(a => {
+      const rel = relationships.find(r =>
+        (r[0]===state.selected && r[1]===a.id) || (r[1]===state.selected && r[0]===a.id)
+      );
+      return {id:a.id, rank:priority[rel?.[2]] ?? 9};
+    })
+    .sort((a,b) => a.rank-b.rank || a.id.localeCompare(b.id, undefined, {numeric:true}));
+
+  const revealedMinorIds = new Set(candidateMinorIds.slice(0,9).map(x=>x.id));
+  const overflowMinorIds = candidateMinorIds.slice(9).map(x=>x.id);
+
+  const visibleArtistIds = new Set(
+    artists
+      .filter(a => !a.minor || state.selected === a.id || revealedMinorIds.has(a.id))
+      .map(a => a.id)
+  );
+
+  // subtle chronology ticks; time now runs vertically like a family tree
+  const tickYears=[1280,1320,1360,1400,1440,1480];
+  tickYears.forEach((yr,i)=>{
+    const y=85+i*210;
+    world.appendChild(svgEl('line',{x1:120,y1:y,x2:1450,y2:y,stroke:'#f1f1f1','stroke-width':'1'}));
+    const t=svgEl('text',{x:78,y:y+4,fill:'#b5b5b5','font-size':'11'});
+    t.textContent=yr; world.appendChild(t);
+  });
+
+  const selected=artists.find(a=>a.id===state.selected);
+
+  if(selected){
+    selected.activity.forEach(a=>{
+      const e=svgEl('ellipse',{cx:a.x,cy:a.y,rx:a.rx,ry:a.ry,class:'wash'});
+      world.appendChild(e);
+      const t=svgEl('text',{x:a.x,y:a.y-4,'text-anchor':'middle',class:'wash-label'});
+      t.textContent=`${selected.name} activity — ${a.place}`; world.appendChild(t);
+      const s=svgEl('text',{x:a.x,y:a.y+13,'text-anchor':'middle',class:'wash-sub'});
+      s.textContent=a.label; world.appendChild(s);
+    });
+  }
+
+  relationships.forEach(r=>{
+    const a=artists.find(x=>x.id===r[0]), b=artists.find(x=>x.id===r[1]);
+    if(!a||!b || !visibleArtistIds.has(a.id) || !visibleArtistIds.has(b.id)) return;
+    const l=svgEl('line',{
+      x1:a.x,y1:a.y,x2:b.x,y2:b.y,
+      class:`edge ${r[2]==='dashed'?'dashed':r[2]==='dotted'?'dotted':''} ${state.selected?'faded':''}`,
+      'marker-end':'url(#arrow)'
+    });
+    if(state.selected && (r[0]===state.selected || r[1]===state.selected)) l.classList.remove('faded');
+    if(state.selected==='bernardo' && (r[0]==='maestro-daddesco' || r[1]==='maestro-daddesco')) l.classList.remove('faded');
+    world.appendChild(l);
+  });
+
+  artists.forEach(a=>{
+    if(!visibleArtistIds.has(a.id)) return;
+    const revealedMinor = a.minor && revealedMinorIds.has(a.id);
+    const shouldFade = state.selected && state.selected!==a.id && !revealedMinor;
+    const g=svgEl('g',{class:`node ${shouldFade?'faded':''}`,transform:`translate(${a.x} ${a.y})`});
+    if(state.selected===a.id) g.classList.add('selected');
+    if(revealedMinor) g.style.opacity = '0.78';
+    const radius=25*a.importance;
+    g.appendChild(svgEl('circle',{r:radius}));
+    const t=svgEl('text',{'text-anchor':'middle',y:-2});
+    t.textContent=a.name.toUpperCase(); g.appendChild(t);
+    const sub=svgEl('text',{'text-anchor':'middle',y:13,class:'sub'});
+    sub.textContent=`c. ${a.year}`; g.appendChild(sub);
+    g.addEventListener('click',(ev)=>{ev.stopPropagation();selectArtist(a.id,true)});
+    world.appendChild(g);
+  });
+
+  if(overflowMinorIds.length && selected){
+    const extraX = selected.x + 155;
+    const extraY = selected.y + 115;
+    const g = svgEl('g',{class:'node additional',transform:`translate(${extraX} ${extraY})`});
+    g.appendChild(svgEl('circle',{r:36}));
+    const t=svgEl('text',{'text-anchor':'middle',y:3});
+    t.textContent='ADDITIONAL'; g.appendChild(t);
+    const sub=svgEl('text',{'text-anchor':'middle',y:17,class:'sub'});
+    sub.textContent=`+${overflowMinorIds.length}`; g.appendChild(sub);
+    g.addEventListener('click',(ev)=>{
+      ev.stopPropagation();
+      openOverflow(overflowMinorIds);
+    });
+    world.appendChild(g);
+  }
+}
+
+function selectArtist(id, center=false){
+  state.selected=id;
+  const a=artists.find(x=>x.id===id);
+  populateDrawer(a);
+  drawer.classList.add('open');
+  document.getElementById('overflowDrawer').classList.remove('open');
+  if(center) focusOn(a.x,a.y);
+  render();
+}
+
+function populateDrawer(a){
+  document.getElementById('dName').textContent=a.full;
+  document.getElementById('dMeta').textContent=`${a.school} tradition · layout date c. ${a.year}`;
+  document.getElementById('wikiLink').href=a.wiki;
+  document.getElementById('dActivity').innerHTML = a.activity.length
+    ? a.activity.map(x=>`<div class="row"><b>${x.place}</b><br><span class="meta">${x.label}</span></div>`).join('')
+    : `<div class="row" style="color:#777">No activity records in this mockup.</div>`;
+  const conns=relationships.filter(r=>r[0]===a.id||r[1]===a.id).map(r=>{
+    const other=artists.find(x=>x.id===(r[0]===a.id?r[1]:r[0]));
+    return `<div class="row"><b>${other.name}</b><br><span class="meta">${r[3]}</span></div>`;
+  }).join('');
+  document.getElementById('dConnections').innerHTML=conns||`<div class="row" style="color:#777">No relationship records in this mockup.</div>`;
+}
+
+function focusOn(x,y,scaleIgnored){
+  const rect=canvas.getBoundingClientRect();
+  const viewBoxWidth=1600, viewBoxHeight=1250;
+  const leftSafePx = drawer.classList.contains('open') ? 410 : 55;
+  const rightSafePx = document.getElementById('overflowDrawer').classList.contains('open') ? 335 : 55;
+  const topSafePx=75, bottomSafePx=55;
+
+  const leftSafe=(leftSafePx/rect.width)*viewBoxWidth;
+  const rightSafe=viewBoxWidth-(rightSafePx/rect.width)*viewBoxWidth;
+  const topSafe=(topSafePx/rect.height)*viewBoxHeight;
+  const bottomSafe=viewBoxHeight-(bottomSafePx/rect.height)*viewBoxHeight;
+
+  const screenX=x*state.scale+state.tx;
+  const screenY=y*state.scale+state.ty;
+  if(screenX<leftSafe) state.tx += leftSafe-screenX+35;
+  if(screenX>rightSafe) state.tx -= screenX-rightSafe+35;
+  if(screenY<topSafe) state.ty += topSafe-screenY+25;
+  if(screenY>bottomSafe) state.ty -= screenY-bottomSafe+25;
+}
+
+function overview(){
+  state.selected=null;
+  state.scale=.62;
+  state.tx=55;
+  state.ty=25;
+  drawer.classList.remove('open');
+  document.getElementById('overflowDrawer').classList.remove('open');
+  render();
+}
+
+canvas.addEventListener('mousedown',e=>{
+  state.dragging=true; canvas.classList.add('dragging');
+  state.sx=e.clientX; state.sy=e.clientY; state.stx=state.tx; state.sty=state.ty;
+});
+window.addEventListener('mousemove',e=>{
+  if(!state.dragging)return;
+  state.tx=state.stx+(e.clientX-state.sx);
+  state.ty=state.sty+(e.clientY-state.sy);
+  render();
+});
+window.addEventListener('mouseup',()=>{state.dragging=false;canvas.classList.remove('dragging')});
+
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  const mx=e.clientX-rect.left,my=e.clientY-rect.top;
+  const wx=(mx-state.tx)/state.scale, wy=(my-state.ty)/state.scale;
+  const factor=e.deltaY<0?1.12:.89;
+  const ns=Math.max(.35,Math.min(2.8,state.scale*factor));
+  state.tx=mx-wx*ns; state.ty=my-wy*ns; state.scale=ns;
+  render();
+},{passive:false});
+
+canvas.addEventListener('click',()=>{ state.selected=null; drawer.classList.remove('open'); render(); });
+document.getElementById('closeDrawer').addEventListener('click',()=>{state.selected=null;drawer.classList.remove('open');document.getElementById('overflowDrawer').classList.remove('open');render()});
+document.getElementById('homeBtn').addEventListener('click',overview);
+
+function openOverflow(ids){
+  const panel=document.getElementById('overflowDrawer');
+  const list=document.getElementById('overflowList');
+  list.innerHTML='';
+  ids.forEach(id=>{
+    const a=artists.find(x=>x.id===id);
+    const b=document.createElement('button');
+    b.type='button';
+    b.className='overflow-item';
+    b.textContent=a.full;
+    b.addEventListener('click',()=>selectArtist(id,true));
+    list.appendChild(b);
+  });
+  panel.classList.add('open');
+}
+
+document.getElementById('closeOverflow').addEventListener('click',()=>{
+  document.getElementById('overflowDrawer').classList.remove('open');
+});
+
+search.addEventListener('input',()=>{
+  const q=search.value.trim().toLowerCase();
+  if(!q){suggestions.style.display='none';return}
+  const hits=artists.filter(a=>a.full.toLowerCase().includes(q)||a.name.toLowerCase().includes(q)).slice(0,7);
+  suggestions.innerHTML=hits.map(a=>`<button data-id="${a.id}">${a.full}</button>`).join('');
+  suggestions.style.display=hits.length?'block':'none';
+  suggestions.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+    const id=b.dataset.id;search.value=artists.find(a=>a.id===id).full;
+    suggestions.style.display='none';selectArtist(id,true);
+  }));
+});
+search.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    const q=search.value.trim().toLowerCase();
+    const hit=artists.find(a=>a.full.toLowerCase()===q)||artists.find(a=>a.full.toLowerCase().includes(q));
+    if(hit){suggestions.style.display='none';selectArtist(hit.id,true)}
+  }
+});
+
+overview();
+</script>
+</body>
+</html>
