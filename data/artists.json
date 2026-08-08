@@ -1,0 +1,255 @@
+{
+  "generated_at": null,
+  "status": "seed/prototype",
+  "artists": [
+    {
+      "id": "giotto",
+      "name": "Giotto di Bondone",
+      "short_name": "Giotto",
+      "school": "Florence",
+      "active_start": 1290,
+      "active_end": 1337,
+      "external_ids": {},
+      "wikipedia": {},
+      "commons_images": [],
+      "activity": [
+        {
+          "place": "Padua",
+          "date_label": "c. 1303\u20131305",
+          "year": 1304,
+          "confidence": "secure",
+          "source_status": "prototype"
+        },
+        {
+          "place": "Assisi",
+          "date_label": "late 13th / early 14th c.",
+          "year": 1300,
+          "confidence": "review",
+          "source_status": "prototype"
+        },
+        {
+          "place": "Rome",
+          "date_label": "activity to be source-reviewed",
+          "year": 1300,
+          "confidence": "review",
+          "source_status": "prototype"
+        }
+      ]
+    },
+    {
+      "id": "duccio",
+      "name": "Duccio di Buoninsegna",
+      "short_name": "Duccio",
+      "school": "Siena",
+      "active_start": 1278,
+      "active_end": 1319,
+      "external_ids": {},
+      "wikipedia": {},
+      "commons_images": [],
+      "activity": [
+        {
+          "place": "Siena",
+          "date_label": "principal activity",
+          "year": 1300,
+          "confidence": "secure",
+          "source_status": "prototype"
+        },
+        {
+          "place": "Florence",
+          "date_label": "activity/commission to be source-reviewed",
+          "year": 1285,
+          "confidence": "review",
+          "source_status": "prototype"
+        }
+      ]
+    },
+    {
+      "id": "simone-martini",
+      "name": "Simone Martini",
+      "short_name": "Simone Martini",
+      "school": "Siena",
+      "active_start": 1315,
+      "active_end": 1344,
+      "external_ids": {},
+      "wikipedia": {},
+      "commons_images": [],
+      "activity": [
+        {
+          "place": "Assisi",
+          "date_label": "early 14th c.",
+          "year": 1318,
+          "confidence": "review",
+          "source_status": "prototype"
+        },
+        {
+          "place": "Naples",
+          "date_label": "1310s",
+          "year": 1317,
+          "confidence": "review",
+          "source_status": "prototype"
+        },
+        {
+          "place": "Avignon",
+          "date_label": "1330s\u20131344",
+          "year": 1338,
+          "confidence": "secure",
+          "source_status": "prototype"
+        }
+      ]
+    },
+    {
+      "id": "bernardo-daddi",
+      "name": "Bernardo Daddi",
+      "short_name": "Bernardo Daddi",
+      "school": "Florence",
+      "active_start": 1320,
+      "active_end": 1348,
+      "external_ids": {},
+      "wikipedia": {},
+      "commons_images": [],
+      "activity": []
+    },
+    {
+      "id": "orcagna",
+      "name": "Andrea di Cione (Orcagna)",
+      "short_name": "Orcagna",
+      "school": "Florence",
+      "active_start": 1343,
+      "active_end": 1368,
+      "external_ids": {},
+      "wikipedia": {},
+      "commons_images": [],
+      "activity": []
+    },
+    {
+      "id": "pietro-lorenzetti",
+      "name": "Pietro Lorenzetti",
+      "short_name": "Pietro Lorenzetti",
+      "school": "Siena",
+      "active_start": 1306,
+      "active_end": 1348,
+      "external_ids": {},
+      "wikipedia": {},
+      "commons_images": [],
+      "activity": [
+        {
+          "place": "Assisi",
+          "date_label": "early 14th c.",
+          "year": 1320,
+          "confidence": "review",
+          "source_status": "prototype"
+        }
+      ]
+    },
+    {
+      "id": "ambrogio-lorenzetti",
+      "name": "Ambrogio Lorenzetti",
+      "short_name": "Ambrogio Lorenzetti",
+      "school": "Siena",
+      "active_start": 1319,
+      "active_end": 1348,
+      "external_ids": {},
+      "wikipedia": {},
+      "commons_images": [],
+      "activity": [
+        {
+          "place": "Florence",
+          "date_label": "early 14th c.",
+          "year": 1325,
+          "confidence": "review",
+          "source_status": "prototype"
+        }
+      ]
+    },
+    {
+      "id": "taddeo-gaddi",
+      "name": "Taddeo Gaddi",
+      "short_name": "Taddeo Gaddi",
+      "school": "Florence",
+      "active_start": 1320,
+      "active_end": 1366,
+      "external_ids": {},
+      "wikipedia": {},
+      "commons_images": [],
+      "activity": []
+    },
+    {
+      "id": "agnolo-gaddi",
+      "name": "Agnolo Gaddi",
+      "short_name": "Agnolo Gaddi",
+      "school": "Florence",
+      "active_start": 1369,
+      "active_end": 1396,
+      "external_ids": {},
+      "wikipedia": {},
+      "commons_images": [],
+      "activity": [
+        {
+          "place": "Prato",
+          "date_label": "late 14th c.",
+          "year": 1390,
+          "confidence": "review",
+          "source_status": "prototype"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "giotto",
+      "to": "taddeo-gaddi",
+      "style": "solid",
+      "meaning": "pupil/workshop",
+      "source_status": "prototype"
+    },
+    {
+      "from": "giotto",
+      "to": "bernardo-daddi",
+      "style": "solid",
+      "meaning": "pupil/workshop",
+      "source_status": "prototype"
+    },
+    {
+      "from": "giotto",
+      "to": "orcagna",
+      "style": "dashed",
+      "meaning": "collaborator/direct influence",
+      "source_status": "prototype"
+    },
+    {
+      "from": "taddeo-gaddi",
+      "to": "agnolo-gaddi",
+      "style": "solid",
+      "meaning": "pupil/workshop",
+      "source_status": "prototype"
+    },
+    {
+      "from": "duccio",
+      "to": "simone-martini",
+      "style": "dashed",
+      "meaning": "collaborator/direct influence",
+      "source_status": "prototype"
+    },
+    {
+      "from": "duccio",
+      "to": "pietro-lorenzetti",
+      "style": "dotted",
+      "meaning": "general influence",
+      "source_status": "prototype"
+    },
+    {
+      "from": "duccio",
+      "to": "ambrogio-lorenzetti",
+      "style": "dotted",
+      "meaning": "general influence",
+      "source_status": "prototype"
+    },
+    {
+      "from": "pietro-lorenzetti",
+      "to": "ambrogio-lorenzetti",
+      "style": "dashed",
+      "meaning": "collaborator/direct relationship",
+      "source_status": "prototype"
+    }
+  ]
+}
