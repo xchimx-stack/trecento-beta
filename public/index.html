@@ -422,10 +422,10 @@ function materializeImportedGraph(){
   for(const region of regionOrder){
     const count=(byRegion[region]||[]).length;
     if(!count) continue;
-    const width=Math.max(340,210+count*42);
+    const width=Math.max(300,185+count*36);
     regionWidths[region]=width;
     regionCenters[region]=cursor+width/2;
-    cursor += width+85;
+    cursor += width+58;
   }
   const worldWidth=Math.max(1800,cursor+220);
   canvas.setAttribute("viewBox",`0 0 ${worldWidth} 1250`);
@@ -678,7 +678,7 @@ function optimizeConnectionLayout(){
         const a=artists[i], b=artists[j];
         if(a.school!==b.school) continue;
         const dx=b.x-a.x, dy=b.y-a.y;
-        const minDist=76;
+        const minDist=84;
         const d=Math.hypot(dx,dy);
         if(d>0 && d<minDist){
           const push=(minDist-d)*0.52;
@@ -1039,7 +1039,7 @@ async function loadImportedDatabase(){
       importedByName.set(String(rec.canonical_name||'').toLowerCase(),rec);
     });
     materializeImportedGraph();
-    document.getElementById('dataStatus').textContent=`${importedDatabase.count || importedDatabase.artists?.length || 0} ULAN nodes loaded`;
+    document.getElementById('dataStatus').textContent=`${importedDatabase.count || importedDatabase.artists?.length || 0} ULAN records loaded`;
     render();
   }catch(e){
     document.getElementById('dataStatus').textContent='Artist database unavailable';

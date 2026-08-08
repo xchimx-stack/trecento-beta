@@ -8,6 +8,19 @@ const ULAN_PAGE = id => `https://vocab.getty.edu/page/ulan/${id}`;
 
 const BATCH_SIZE = 10;
 const PAGE_CONCURRENCY = 5;
+const EXPANSION_CAP = 50;
+
+const REL_PRIORITY = {
+  "documented_training": 1,
+  "workshop_employment": 1,
+  "workshop_membership": 1,
+  "family_parent_child": 2,
+  "family_sibling": 2,
+  "direct_influence": 3,
+  "collaboration": 3,
+  "association": 4,
+  "family_or_association": 4
+};
 
 const REGIONAL_ANCHORS = [
   {seed_name:"Giotto di Bondone", region:"Florence"},
@@ -296,6 +309,7 @@ async function mapLimit(items,limit,fn){
 }
 
 
+
 async function main(){
   const t0=Date.now();
   const seed=JSON.parse(await fs.readFile(SEEDS,"utf8"));
@@ -327,38 +341,99 @@ async function main(){
 
   artists=await mapLimit(artists,PAGE_CONCURRENCY,enrichOne);
 
-  // Discover one degree of related ULAN records from the hard-coded regional anchors.
+  // Rank current records by internal relationship degree.
+  const currentIds=new Set(artists.map(a=>a.ulan.id).filter(Boolean));
+  const degree=new Map([...currentIds].map(id=>[id,0]));
+  for(const a of artists){
+    for(const rel of a.relationships||[]){
+      if(currentIds.has(rel.related_id)){
+        degree.set(a.ulan.id,(degree.get(a.ulan.id)||0)+1);
+      }
+    }
+  }
+
   const anchorIds=new Set(
     artists.filter(a=>a.anchor_region && a.ulan.id).map(a=>a.ulan.id)
   );
-  const knownIds=new Set(artists.map(a=>a.ulan.id).filter(Boolean));
-  const discovered=[];
 
-  for(const a of artists){
-    if(!anchorIds.has(a.ulan.id)) continue;
+  // Sources for expansion: anchors first, then highest-degree current artists.
+  const sources=[...artists]
+    .filter(a=>a.ulan.id)
+    .sort((a,b)=>{
+      const aa=anchorIds.has(a.ulan.id)?1:0;
+      const ba=anchorIds.has(b.ulan.id)?1:0;
+      if(aa!==ba) return ba-aa;
+      return (degree.get(b.ulan.id)||0)-(degree.get(a.ulan.id)||0);
+    });
+
+  const knownIds=new Set(currentIds);
+  const candidates=[];
+
+  for(const a of sources){
     for(const rel of a.relationships||[]){
       if(!rel.related_id || knownIds.has(rel.related_id)) continue;
-      knownIds.add(rel.related_id);
-      discovered.push({
-        seed_name:rel.related_label || `ULAN ${rel.related_id}`,
-        canonical_name:rel.related_label || `ULAN ${rel.related_id}`,
-        ulan:{
-          id:rel.related_id,
-          uri:`http://vocab.getty.edu/ulan/${rel.related_id}`,
-          score:null,
-          exact_match:true,
-          candidates:[]
-        },
-        discovered_from_anchor:a.ulan.id,
-        review_status:"ulan_related_candidate"
+      candidates.push({
+        related_id:rel.related_id,
+        related_label:rel.related_label || `ULAN ${rel.related_id}`,
+        discovered_from:a.ulan.id,
+        source_is_anchor:anchorIds.has(a.ulan.id),
+        source_degree:degree.get(a.ulan.id)||0,
+        evidence_class:rel.evidence_class||"association",
+        style:rel.style||"dotted",
+        directed:Boolean(rel.directed)
       });
     }
   }
 
+  // Deduplicate and rank.
+  const bestById=new Map();
+  for(const c of candidates){
+    const existing=bestById.get(c.related_id);
+    const rank=[
+      REL_PRIORITY[c.evidence_class] ?? 9,
+      c.source_is_anchor ? 0 : 1,
+      -c.source_degree
+    ];
+    if(!existing){
+      bestById.set(c.related_id,{...c,rank});
+    }else{
+      const er=existing.rank;
+      const better = rank[0] < er[0] ||
+        (rank[0]===er[0] && rank[1] < er[1]) ||
+        (rank[0]===er[0] && rank[1]===er[1] && rank[2] < er[2]);
+      if(better) bestById.set(c.related_id,{...c,rank});
+    }
+  }
+
+  const selected=[...bestById.values()]
+    .sort((a,b)=>
+      a.rank[0]-b.rank[0] ||
+      a.rank[1]-b.rank[1] ||
+      a.rank[2]-b.rank[2] ||
+      a.related_label.localeCompare(b.related_label)
+    )
+    .slice(0,EXPANSION_CAP);
+
+  const discovered=selected.map(c=>({
+    seed_name:c.related_label,
+    canonical_name:c.related_label,
+    ulan:{
+      id:c.related_id,
+      uri:`http://vocab.getty.edu/ulan/${c.related_id}`,
+      score:null,
+      exact_match:true,
+      candidates:[]
+    },
+    discovered_from_anchor:c.source_is_anchor ? c.discovered_from : null,
+    discovered_from:c.discovered_from,
+    discovery_evidence_class:c.evidence_class,
+    review_status:"ulan_related_candidate"
+  }));
+
   const enrichedDiscovered=await mapLimit(discovered,PAGE_CONCURRENCY,enrichOne);
   artists.push(...enrichedDiscovered);
 
-  // Build relationship graph across all included records.
+  // Build graph relationships across all retained records.
   const ids=new Set(artists.map(a=>a.ulan.id).filter(Boolean));
   const priority={solid:3,dashed:2,dotted:1};
   const byPair=new Map();
@@ -369,7 +444,7 @@ async function main(){
 
       const from=rel.from_ulan||a.ulan.id;
       const to=rel.to_ulan||rel.related_id;
-      const unordered=[from,to].sort().join("|");
+      const pair=[from,to].sort().join("|");
 
       const evidence={
         from_ulan:from,
@@ -382,15 +457,12 @@ async function main(){
         evidence_class:rel.evidence_class
       };
 
-      const existing=byPair.get(unordered);
+      const existing=byPair.get(pair);
       if(!existing){
-        byPair.set(unordered,{
-          ...evidence,
-          evidence:[evidence]
-        });
+        byPair.set(pair,{...evidence,evidence:[evidence]});
       }else{
         existing.evidence.push(evidence);
-        if((priority[rel.style]||0) > (priority[existing.style]||0)){
+        if((priority[rel.style]||0)>(priority[existing.style]||0)){
           existing.from_ulan=from;
           existing.to_ulan=to;
           existing.style=rel.style;
@@ -402,7 +474,6 @@ async function main(){
           (priority[rel.style]||0)===(priority[existing.style]||0) &&
           rel.directed && !existing.directed
         ){
-          // Same strength, but a directional source is more informative.
           existing.from_ulan=from;
           existing.to_ulan=to;
           existing.directed=true;
@@ -415,8 +486,8 @@ async function main(){
 
   const graphRelationships=[...byPair.values()];
   run.relationship_count=graphRelationships.length;
-  run.anchor_count=REGIONAL_ANCHORS.length;
-  run.discovered_first_degree_count=enrichedDiscovered.length;
+  run.expansion_cap=EXPANSION_CAP;
+  run.discovered_count=enrichedDiscovered.length;
   run.total_artist_count=artists.length;
 
   run.completed_at=new Date().toISOString();
@@ -426,15 +497,16 @@ async function main(){
     generated_at:run.completed_at,
     source:"Getty ULAN",
     count:artists.length,
-    anchors:REGIONAL_ANCHORS,
-    note:"Proof dataset with hard-coded regional anchors and one-degree ULAN expansion from anchors.",
+    expansion_cap:EXPANSION_CAP,
+    note:"Controlled ULAN expansion proof dataset.",
     artists,
     relationships:graphRelationships
   },null,2));
+
   await fs.writeFile(STATUS,JSON.stringify(run,null,2));
 
-  console.log(`Materialized ${artists.length} ULAN records (${enrichedDiscovered.length} first-degree anchor discoveries).`);
-  console.log(`Relationships: ${graphRelationships.length}; detail pages ${run.detail_pages_ok}/${run.detail_pages_requested}.`);
+  console.log(`Controlled ULAN expansion: ${artists.length} total records, ${enrichedDiscovered.length} added.`);
+  console.log(`Relationships: ${graphRelationships.length}; duration ${run.duration_ms}ms.`);
 }
 main().catch(async e=>{
   run.fatal_error=e.message;
