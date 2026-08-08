@@ -142,24 +142,83 @@ function extractSummary(text){
   return m ? m[1].trim() : null;
 }
 
+
 function extractRelationships(text,currentId){
   const out=[];
-  // The Getty display renders relations such as:
-  // "student of .... Cimabue ... [500016284]" and "teacher of .... Daddi, Bernardo ... [500004953]"
-  const rx=/(student of|teacher of|employee was|member of|worked with|partner of|collaborated with|influenced by|influenced)\s*\.{0,12}\s*([^[]]{1,180}?)\s*\[(5\d{8})\]/gi;
+
+  const relationTypes=[
+    "student of","teacher of","employee of","member of",
+    "worked with","partner of","collaborated with",
+    "influenced by","influenced",
+    "child of","parent of","sibling of","brother of","sister of"
+  ];
+
+  const relAlt=relationTypes.map(x=>x.replaceAll(" ","\\s+")).join("|");
+  const rx=new RegExp(
+    `(${relAlt})\\s*\\.{0,20}\\s*([^\\[]]{1,220}?)\\s*\\[(5\\d{8})\\]`,
+    "gi"
+  );
+
   for(const m of text.matchAll(rx)){
-    const type=m[1].toLowerCase();
+    const type=m[1].toLowerCase().replace(/\s+/g," ").trim();
     const relatedId=m[3];
-    const relatedLabel=m[2].replace(/\([^)]*\)\s*$/,"").replace(/\.+/g," ").trim();
-    let direction="undirected",style="dashed",meaning=type;
+    const relatedLabel=m[2]
+      .replace(/\([^)]*\)\s*$/,"")
+      .replace(/\.+/g," ")
+      .replace(/\s+/g," ")
+      .trim();
+
+    let direction="undirected";
+    let style="dotted";
+    let meaning="general influence";
+    let evidence_class="family_or_association";
+
     if(type==="student of"){
-      direction="related_to_current"; style="solid"; meaning="pupil / workshop";
-    }else if(type==="teacher of" || type==="employee was"){
-      direction="current_to_related"; style="solid"; meaning="pupil / workshop";
-    }else if(type.includes("influenc") || type.includes("worked") || type.includes("collabor") || type.includes("partner")){
-      style="dashed"; meaning="collaborator / direct influence";
+      direction="related_to_current";
+      style="solid";
+      meaning="pupil / workshop";
+      evidence_class="documented_training";
+    }else if(type==="teacher of"){
+      direction="current_to_related";
+      style="solid";
+      meaning="pupil / workshop";
+      evidence_class="documented_training";
+    }else if(type==="employee of"){
+      direction="related_to_current";
+      style="solid";
+      meaning="pupil / workshop";
+      evidence_class="workshop_employment";
+    }else if(type==="member of"){
+      style="solid";
+      meaning="pupil / workshop";
+      evidence_class="workshop_membership";
+    }else if(
+      type==="worked with" || type==="partner of" ||
+      type==="collaborated with" || type==="influenced by" ||
+      type==="influenced"
+    ){
+      style="dashed";
+      meaning="collaborator / direct influence";
+      evidence_class="direct_association";
+    }else if(
+      type==="child of" || type==="parent of" ||
+      type==="sibling of" || type==="brother of" || type==="sister of"
+    ){
+      style="dotted";
+      meaning="general influence";
+      evidence_class="family";
     }
-    out.push({current_id:currentId,related_id:relatedId,related_label:relatedLabel,type,direction,style,meaning});
+
+    out.push({
+      current_id:currentId,
+      related_id:relatedId,
+      related_label:relatedLabel,
+      source_relation:type,
+      direction,
+      style,
+      meaning,
+      evidence_class
+    });
   }
   return out;
 }
@@ -236,8 +295,9 @@ async function main(){
 
   // Keep only relationships whose related ULAN ID is also in our 62-record proof dataset.
   const ids=new Set(artists.map(a=>a.ulan.id).filter(Boolean));
-  const graphRelationships=[];
-  const seen=new Set();
+  const priority={solid:3,dashed:2,dotted:1};
+  const byPair=new Map();
+
   for(const a of artists){
     for(const rel of a.relationships||[]){
       if(!ids.has(rel.related_id)) continue;
@@ -245,13 +305,36 @@ async function main(){
       if(rel.direction==="related_to_current"){from=rel.related_id;to=a.ulan.id;}
       else if(rel.direction==="current_to_related"){from=a.ulan.id;to=rel.related_id;}
       else {from=a.ulan.id;to=rel.related_id;}
-      const key=[from,to,rel.style].join("|");
-      const rev=[to,from,rel.style].join("|");
-      if(seen.has(key)||seen.has(rev)) continue;
-      seen.add(key);
-      graphRelationships.push({from_ulan:from,to_ulan:to,style:rel.style,meaning:rel.meaning,source:"Getty ULAN"});
+
+      const pair=[from,to].sort().join("|");
+      const evidence={
+        from_ulan:from,
+        to_ulan:to,
+        style:rel.style,
+        meaning:rel.meaning,
+        source:"Getty ULAN",
+        source_relation:rel.source_relation,
+        evidence_class:rel.evidence_class
+      };
+
+      const existing=byPair.get(pair);
+      if(!existing){
+        byPair.set(pair,{...evidence,evidence:[evidence]});
+      }else{
+        existing.evidence.push(evidence);
+        if((priority[rel.style]||0) > (priority[existing.style]||0)){
+          existing.from_ulan=from;
+          existing.to_ulan=to;
+          existing.style=rel.style;
+          existing.meaning=rel.meaning;
+          existing.source_relation=rel.source_relation;
+          existing.evidence_class=rel.evidence_class;
+        }
+      }
     }
   }
+
+  const graphRelationships=[...byPair.values()];
   run.relationship_count=graphRelationships.length;
 
   run.completed_at=new Date().toISOString();

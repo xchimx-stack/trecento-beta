@@ -161,7 +161,7 @@
       <div class="section">
         <h3>Method</h3>
         <div class="row" style="border-top:0;color:#777">
-          ULAN-derived nodes use chronology and regional descriptors for layout. Activity washes remain separately curated; only explicit ULAN relationships create imported edges.
+          ULAN-derived nodes use vertical chronology and elastic regional territories. Family relationships default to dotted general influence; documented training/workshop relations upgrade to solid and direct artistic associations to dashed.
         </div>
       </div>
     </div>
@@ -247,65 +247,171 @@ let importedDatabase={artists:[],relationships:[]};
 let importedByName=new Map();
 let importedGraphLoaded=false;
 
-const regionX={
-  "Florence":470,
-  "Siena":860,
-  "Veneto":1240,
-  "Bologna":1080,
-  "Rimini":1110,
-  "Rome":690,
-  "Naples":790,
-  "Unclassified Italy":980
-};
+
+const regionOrder=["Florence","Siena","Rome","Bologna","Rimini","Naples","Veneto","Unclassified Italy"];
 
 function yForYear(year){
-  const min=1250,max=1480,top=55,bottom=1190;
+  const min=1250,max=1480,top=70,bottom=1180;
   const y=Math.max(min,Math.min(max,Number(year)||1350));
   return top+((y-min)/(max-min))*(bottom-top);
+}
+
+function computeElasticRegionLayout(records){
+  const counts={};
+  for(const rec of records){
+    const r=rec.layout?.region || "Unclassified Italy";
+    counts[r]=(counts[r]||0)+1;
+  }
+
+  const minWidth=230;
+  const perNodeWidth=48;
+  const gap=70;
+  let cursor=150;
+  const regions={};
+
+  for(const region of regionOrder){
+    const count=counts[region]||0;
+    if(!count) continue;
+    const width=Math.max(minWidth,170+count*perNodeWidth);
+    regions[region]={left:cursor,right:cursor+width,width,center:cursor+width/2};
+    cursor += width + gap;
+  }
+
+  return {regions,worldWidth:Math.max(1600,cursor+180)};
+}
+
+function layoutRegionNodes(records, territory, majorNames){
+  const placed=[];
+  const nodes=[];
+  const sorted=[...records].sort((a,b)=>
+    (a.layout?.year||1350)-(b.layout?.year||1350) ||
+    String(a.canonical_name||a.seed_name).localeCompare(String(b.canonical_name||b.seed_name))
+  );
+
+  for(const rec of sorted){
+    const name=(rec.canonical_name||rec.seed_name).toLowerCase();
+    const major=majorNames.has(name);
+    const radius=major?58:34;
+    const exclusion=major?120:78;
+    const baseY=yForYear(rec.layout?.year||1350);
+
+    const candidateXs=[];
+    const step=85;
+    candidateXs.push(territory.center);
+    for(let i=1;i<20;i++){
+      candidateXs.push(territory.center-i*step);
+      candidateXs.push(territory.center+i*step);
+    }
+
+    let best=null;
+    for(const x of candidateXs){
+      if(x<territory.left+radius || x>territory.right-radius) continue;
+      for(const yOffset of [0,-30,30,-60,60,-90,90]){
+        const y=baseY+yOffset;
+        const collides=placed.some(p=>{
+          const dx=x-p.x,dy=y-p.y;
+          return Math.hypot(dx,dy)<Math.max(exclusion,p.exclusion);
+        });
+        if(!collides){best={x,y};break;}
+      }
+      if(best) break;
+    }
+
+    if(!best){
+      const idx=placed.length;
+      best={
+        x:territory.left+45+(idx*97)%Math.max(100,territory.width-90),
+        y:baseY+((idx%5)-2)*34
+      };
+    }
+
+    placed.push({...best,exclusion});
+    nodes.push({rec,x:best.x,y:best.y,major});
+  }
+
+  return nodes;
 }
 
 function materializeImportedGraph(){
   if(importedGraphLoaded) return;
   importedGraphLoaded=true;
 
-  const usedByRegion={};
-  for(const rec of importedDatabase.artists||[]){
-    const already=artists.find(a=>a.full.toLowerCase()===String(rec.seed_name).toLowerCase());
-    if(already){
-      already.ulan_id=rec.ulan?.id||null;
-      already.year=rec.layout?.year||already.year;
-      continue;
-    }
-    const region=rec.layout?.region||"Unclassified Italy";
-    const idx=usedByRegion[region]||0;
-    usedByRegion[region]=idx+1;
-    const x0=regionX[region]||regionX["Unclassified Italy"];
-    const jitter=[0,-90,90,-45,45,-135,135][idx%7];
-    const year=rec.layout?.year||1350;
-    artists.push({
-      id:`ulan-${rec.ulan?.id||rec.seed_name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`,
-      ulan_id:rec.ulan?.id||null,
-      name:rec.canonical_name||rec.seed_name,
-      full:rec.canonical_name||rec.seed_name,
-      school:region,
-      year,
-      x:x0+jitter,
-      y:yForYear(year)+(Math.floor(idx/7)%3-1)*18,
-      importance:.78,
-      wiki:"",
-      activity:[],
-      imported:true
-    });
+  const records=importedDatabase.artists||[];
+  const {regions,worldWidth}=computeElasticRegionLayout(records);
+  canvas.setAttribute("viewBox",`0 0 ${worldWidth} 1250`);
+
+  const majorNames=new Set([
+    "giotto","giotto di bondone","duccio","duccio di buoninsegna",
+    "simone martini","pietro lorenzetti","ambrogio lorenzetti",
+    "orcagna","andrea di cione","paolo veneziano"
+  ]);
+
+  const byRegion={};
+  for(const rec of records){
+    const r=rec.layout?.region||"Unclassified Italy";
+    (byRegion[r]||(byRegion[r]=[])).push(rec);
   }
 
+  const generated=[];
+  for(const [region,recs] of Object.entries(byRegion)){
+    const territory=regions[region];
+    if(territory) generated.push(...layoutRegionNodes(recs,territory,majorNames));
+  }
+
+  for(const g of generated){
+    const rec=g.rec;
+    const seed=String(rec.seed_name||"").toLowerCase();
+    const canon=String(rec.canonical_name||rec.seed_name||"").toLowerCase();
+    let a=artists.find(x=>x.full.toLowerCase()===seed || x.full.toLowerCase()===canon);
+
+    if(a){
+      a.ulan_id=rec.ulan?.id||null;
+      a.year=rec.layout?.year||a.year;
+      a.x=g.x;a.y=g.y;
+      a.school=rec.layout?.region||a.school;
+      a.imported=true;
+      a.importance=g.major?1.35:Math.max(.82,a.importance||.82);
+    }else{
+      artists.push({
+        id:`ulan-${rec.ulan?.id||rec.seed_name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`,
+        ulan_id:rec.ulan?.id||null,
+        name:rec.canonical_name||rec.seed_name,
+        full:rec.canonical_name||rec.seed_name,
+        school:rec.layout?.region||"Unclassified Italy",
+        year:rec.layout?.year||1350,
+        x:g.x,y:g.y,
+        importance:g.major?1.25:.82,
+        wiki:"",
+        activity:[],
+        imported:true
+      });
+    }
+  }
+
+  const giotto=artists.find(a=>a.full.toLowerCase().includes("giotto"));
+  const duccio=artists.find(a=>a.full.toLowerCase().includes("duccio"));
+  if(giotto && duccio && Math.abs(duccio.x-giotto.x)<360){
+    giotto.x-=90;
+    duccio.x+=90;
+  }
+
+  const strength={solid:3,dashed:2,dotted:1};
   for(const r of importedDatabase.relationships||[]){
     const a=artists.find(x=>x.ulan_id===r.from_ulan);
     const b=artists.find(x=>x.ulan_id===r.to_ulan);
     if(!a||!b) continue;
-    const exists=relationships.some(x=>
+
+    const existing=relationships.find(x=>
       (x[0]===a.id&&x[1]===b.id)||(x[0]===b.id&&x[1]===a.id)
     );
-    if(!exists) relationships.push([a.id,b.id,r.style||"dashed",r.meaning||"ULAN relationship"]);
+    if(existing){
+      if((strength[r.style]||0)>(strength[existing[2]]||0)){
+        existing[2]=r.style;
+        existing[3]=r.meaning||existing[3];
+      }
+    }else{
+      relationships.push([a.id,b.id,r.style||"dotted",r.meaning||"general influence"]);
+    }
   }
 }
 
@@ -424,7 +530,7 @@ function render(){
     const g=svgEl('g',{class:`node ${shouldFade?'faded':''}`,transform:`translate(${a.x} ${a.y})`});
     if(state.selected===a.id) g.classList.add('selected');
     if(revealedMinor) g.style.opacity = '0.78';
-    const radius=25*a.importance;
+    const radius=26*a.importance;
     g.appendChild(svgEl('circle',{r:radius}));
     const t=svgEl('text',{'text-anchor':'middle',y:-2});
     t.textContent=a.name.toUpperCase(); g.appendChild(t);
@@ -505,7 +611,7 @@ function focusOn(x,y,scaleIgnored){
 
 function overview(){
   state.selected=null;
-  state.scale=.62;
+  state.scale=.52;
   state.tx=55;
   state.ty=25;
   drawer.classList.remove('open');
