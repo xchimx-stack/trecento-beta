@@ -1,38 +1,20 @@
-# Trecento Network v0.7.6 — validation + canonical cleanup
+# Trecento Network v0.7.7 — compact Florence-centered geography
 
-## ULAN record hygiene
-- related ULAN IDs are fetched normally
-- displayed node name is taken from the related record's preferred ULAN name
-- relationship prose is never trusted as the final node label
-- corporate-body records (e.g. Gaddi family) are excluded from artist expansion
-- sentence-like contaminated labels are rejected
+Data ingestion and relationship validation are unchanged from v0.7.6.
 
-## Cione-family stability
-Nardo di Cione is a critical proof node and cannot silently disappear.
-If import/materialization fails to create him, the browser creates a temporary Florentine fallback node.
+## Geographic order
+South / Rome / Pisa -> Siena -> Florence -> Bologna -> Rimini -> Veneto
 
-Expected family edges:
-- Orcagna — Nardo: dotted undirected sibling baseline
-- Nardo — Jacopo: dotted undirected sibling baseline
-- Nardo -> Mariotto: dotted directional parent/child baseline
+Siena and Florence are deliberately flipped from the previous build so the
+larger Florentine network occupies the visual center of the populated graph.
 
-## Visible arrows
-Edges are now geometrically clipped to the source/target node boundaries.
-Arrowheads terminate outside the target circle instead of being hidden underneath it.
+## Regional whitespace
+Regional boundaries now receive only 18px of additional territory separation.
+A post-layout compaction pass removes any larger empty horizontal corridor
+between adjacent regional territories.
 
-All curated solid pupil/workshop edges are directional master -> pupil unless explicit metadata says otherwise.
+Node and label collision clearance remains unchanged, so regions can flow
+together without allowing nodes to overlap.
 
-## Runtime validation
-The data-status badge reports validation X/6.
-
-The six required tests are:
-1. Nardo exists
-2. Orcagna—Nardo dotted
-3. Nardo—Jacopo dotted
-4. Nardo->Mariotto dotted + directional
-5. Giotto->Bernardo Daddi solid + directional
-6. Bicci di Lorenzo->Neri di Bicci solid + directional
-
-## Regional flow
-Extra regional gutters are reduced to ordinary node-clearance scale.
-Florence and Siena anchors sit toward the shared Tuscan core rather than at the centers of very wide independent blocks.
+## Startup
+The graph still opens centered on Giotto.

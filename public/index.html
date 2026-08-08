@@ -395,7 +395,7 @@ const anchorSpecs={
 // Tuscany is the visual center.
 // South/west of Tuscany goes left; north/east goes right.
 const leftRegions=["Naples","Rome","Pisa"];
-const centerRegions=["Florence","Siena"];
+const centerRegions=["Siena","Florence"];
 const rightRegions=["Bologna","Rimini","Veneto"];
 
 function yForYear(year){
@@ -523,35 +523,35 @@ function materializeImportedGraph(){
   }
 
   // Center Florence/Siena around the visual origin.
-  const centerGap=28;
+  const centerGap=18;
   const florW=regionWidths["Florence"]||420;
   const sienW=regionWidths["Siena"]||380;
-  const centralTotal=florW+centerGap+sienW;
+  const centralTotal=sienW+centerGap+florW;
   const centerStart=0;
 
   const regionBounds={};
-  regionBounds["Florence"]={left:centerStart,right:centerStart+florW};
-  regionBounds["Siena"]={
-    left:centerStart+florW+centerGap,
-    right:centerStart+florW+centerGap+sienW
+  regionBounds["Siena"]={left:centerStart,right:centerStart+sienW};
+  regionBounds["Florence"]={
+    left:centerStart+sienW+centerGap,
+    right:centerStart+sienW+centerGap+florW
   };
 
-  // Pack left side outward from Florence.
-  let leftCursor=regionBounds["Florence"].left-32;
+  // Pack south/west outward from Siena.
+  let leftCursor=regionBounds["Siena"].left-18;
   for(const region of [...leftRegions].reverse()){
     const w=regionWidths[region];
     if(!w) continue;
     regionBounds[region]={left:leftCursor-w,right:leftCursor};
-    leftCursor-=w+32;
+    leftCursor-=w+18;
   }
 
   // Pack right side outward from Siena.
-  let rightCursor=regionBounds["Siena"].right+32;
+  let rightCursor=regionBounds["Florence"].right+18;
   for(const region of rightRegions){
     const w=regionWidths[region];
     if(!w) continue;
     regionBounds[region]={left:rightCursor,right:rightCursor+w};
-    rightCursor+=w+32;
+    rightCursor+=w+18;
   }
 
   // Any unexpected region is tucked beside its nearest known Italian field,
@@ -560,7 +560,27 @@ function materializeImportedGraph(){
     if(regionBounds[region]) continue;
     const w=regionWidths[region]||300;
     regionBounds[region]={left:rightCursor,right:rightCursor+w};
-    rightCursor+=w+32;
+    rightCursor+=w+18;
+  }
+
+
+  // Compact adjacent regional territories. A school boundary is not entitled
+  // to more whitespace than ordinary node clearance inside a school.
+  const geographicOrder=["Naples","Rome","Pisa","Siena","Florence","Bologna","Rimini","Veneto"]
+    .filter(r=>regionBounds[r]);
+
+  const boundaryGap=18;
+  for(let i=1;i<geographicOrder.length;i++){
+    const prev=regionBounds[geographicOrder[i-1]];
+    const cur=regionBounds[geographicOrder[i]];
+    const excess=cur.left-(prev.right+boundaryGap);
+    if(excess>0){
+      for(let j=i;j<geographicOrder.length;j++){
+        const b=regionBounds[geographicOrder[j]];
+        b.left-=excess;
+        b.right-=excess;
+      }
+    }
   }
 
   // Shift everything positive for SVG coordinates.
@@ -609,8 +629,8 @@ function materializeImportedGraph(){
         String(rec.canonical_name||rec.seed_name).toLowerCase().includes(anchorName);
 
       let desiredX=bounds.center;
-      if(isAnchor && region==="Florence") desiredX=bounds.right-Math.min(150,bounds.right-bounds.left-80);
-      if(isAnchor && region==="Siena") desiredX=bounds.left+Math.min(150,bounds.right-bounds.left-80);
+      if(isAnchor && region==="Siena") desiredX=bounds.center;
+      if(isAnchor && region==="Florence") desiredX=bounds.left+Math.min(180,(bounds.right-bounds.left)*0.42);
       const step=86;
       const offsets=[0,-1,1,-2,2,-3,3,-4,4,-5,5,-6,6];
 
