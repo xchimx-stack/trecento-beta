@@ -1,4 +1,4 @@
-# Trecento Network v0.4 — self-populating scale test
+# Trecento Network v0.4.1 — rate-limited self-populating scale test
 
 This version keeps the approved interactive graph behavior and adds a deployment-time enrichment pipeline.
 
@@ -34,3 +34,12 @@ become historical claims.
 ## Deploy
 
 Replace the repository contents with this package, commit to `main`, and Vercel should redeploy automatically.
+
+
+## v0.4.1 deployment fix
+The importer now:
+- spaces external API requests
+- retries HTTP 429/503 responses with exponential backoff
+- respects Retry-After when supplied
+- continues past an individual failed artist/service instead of aborting the deployment
+- adds extra delay between artists for Vercel shared-IP rate limits

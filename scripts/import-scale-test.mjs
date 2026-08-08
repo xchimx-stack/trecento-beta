@@ -8,9 +8,37 @@ const GETTY = "https://vocab.getty.edu/sparql";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function getJSON(url) {
-  const r = await fetch(url, {headers:{"User-Agent":"TrecentoNetwork/0.2 research prototype"}});
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+let lastRequestAt = 0;
+const MIN_REQUEST_GAP_MS = 450;
+
+async function rateLimit(){
+  const now=Date.now();
+  const wait=Math.max(0, MIN_REQUEST_GAP_MS-(now-lastRequestAt));
+  if(wait) await sleep(wait);
+  lastRequestAt=Date.now();
+}
+
+async function getJSON(url, attempt=0) {
+  await rateLimit();
+  const r = await fetch(url, {
+    headers:{
+      "User-Agent":"TrecentoNetwork/0.4.1 research prototype (Vercel scale test)",
+      "Accept":"application/json"
+    }
+  });
+
+  if (r.status === 429 || r.status === 503) {
+    if(attempt >= 6) throw new Error(`${r.status} ${r.statusText} after retries`);
+    const retryAfter = Number(r.headers.get("retry-after"));
+    const backoff = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : Math.min(30000, 1200 * (2 ** attempt));
+    console.warn(`Rate limited (${r.status}); retrying in ${backoff} ms`);
+    await sleep(backoff);
+    return getJSON(url, attempt+1);
+  }
+
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${url}`);
   return r.json();
 }
 async function wdSearch(name) {
@@ -97,40 +125,65 @@ async function main(){
   for(const row of seed.artists){
     const name=row.seed_name;
     console.log("Resolving",name);
-    const candidates=await wdSearch(name);
-    const qid=candidates[0]?.id||null;
-    const entity=qid ? await wdEntity(qid) : null;
-    const enTitle=entity?.sitelinks?.enwiki?.title||null;
-    const itTitle=entity?.sitelinks?.itwiki?.title||null;
-    const en=await wikiInfo("en",enTitle);
-    const it=await wikiInfo("it",itTitle);
-    const preferred=(en && !en.is_stub) ? {...en,language:"en"} :
-                    it ? {...it,language:"it"} :
-                    en ? {...en,language:"en"} : null;
-    const commons=claim(entity,"P373");
-    const birth_year=timeYear(entity,"P569");
-    const death_year=timeYear(entity,"P570");
-    const inception_year=timeYear(entity,"P571");
-    const floruit_start=timeYear(entity,"P1317");
-    const floruit_end=timeYear(entity,"P1318");
-    const label=entity?.labels?.en?.value || entity?.labels?.it?.value || name;
-    const description=entity?.descriptions?.en?.value || entity?.descriptions?.it?.value || null;
+    try {
+      const candidates=await wdSearch(name);
+      const qid=candidates[0]?.id||null;
+      const entity=qid ? await wdEntity(qid) : null;
+      const enTitle=entity?.sitelinks?.enwiki?.title||null;
+      const itTitle=entity?.sitelinks?.itwiki?.title||null;
+      const en=await wikiInfo("en",enTitle);
+      const it=await wikiInfo("it",itTitle);
+      const preferred=(en && !en.is_stub) ? {...en,language:"en"} :
+                      it ? {...it,language:"it"} :
+                      en ? {...en,language:"en"} : null;
+      const commons=claim(entity,"P373");
+      const birth_year=timeYear(entity,"P569");
+      const death_year=timeYear(entity,"P570");
+      const inception_year=timeYear(entity,"P571");
+      const floruit_start=timeYear(entity,"P1317");
+      const floruit_end=timeYear(entity,"P1318");
+      const label=entity?.labels?.en?.value || entity?.labels?.it?.value || name;
+      const description=entity?.descriptions?.en?.value || entity?.descriptions?.it?.value || null;
 
-    out.push({
-      seed_name:name,
-      canonical_name:label,
-      description,
-      wikidata:{
-        qid,
-        candidates:candidates.slice(0,3).map(x=>({id:x.id,label:x.label,description:x.description})),
-        birth_year, death_year, inception_year, floruit_start, floruit_end
-      },
-      wikipedia:{en,it,preferred},
-      commons:{category:commons,images:await commonsImages(commons,6)},
-      ulan:{candidates:await ulanSearch(name)},
-      review_status:"unreviewed"
-    });
-    await sleep(80);
+      let images=[];
+      try { images=await commonsImages(commons,6); }
+      catch(e){ console.warn(`Commons failed for ${name}: ${e.message}`); }
+
+      let ulanCandidates=[];
+      try { ulanCandidates=await ulanSearch(name); }
+      catch(e){ console.warn(`ULAN failed for ${name}: ${e.message}`); }
+
+      out.push({
+        seed_name:name,
+        canonical_name:label,
+        description,
+        wikidata:{
+          qid,
+          candidates:candidates.slice(0,3).map(x=>({id:x.id,label:x.label,description:x.description})),
+          birth_year, death_year, inception_year, floruit_start, floruit_end
+        },
+        wikipedia:{en,it,preferred},
+        commons:{category:commons,images},
+        ulan:{candidates:ulanCandidates},
+        review_status:"unreviewed"
+      });
+    } catch(e) {
+      console.warn(`Enrichment failed for ${name}: ${e.message}`);
+      out.push({
+        seed_name:name,
+        canonical_name:name,
+        description:null,
+        wikidata:{qid:null,candidates:[]},
+        wikipedia:{en:null,it:null,preferred:null},
+        commons:{category:null,images:[]},
+        ulan:{candidates:[]},
+        review_status:"import_failed",
+        import_error:e.message
+      });
+    }
+
+    // Additional artist-level pacing for shared cloud IPs.
+    await sleep(650);
   }
   await fs.writeFile(OUT,JSON.stringify({
     generated_at:new Date().toISOString(),
