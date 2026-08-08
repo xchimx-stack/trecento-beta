@@ -47,9 +47,6 @@
   .node.additional text{font-size:10px;letter-spacing:.06em}
   .faded{opacity:.14!important}
   .neighbor{opacity:.55!important}
-  .wash{fill:var(--wash);stroke:none}
-  .wash-label{fill:#555;font-size:12px;font-weight:600}
-  .wash-sub{fill:#7d7d7d;font-size:10px}
   #drawer{
     position:absolute;left:18px;top:74px;bottom:18px;width:350px;z-index:30;
     background:#fff;border:1px solid #dedede;border-radius:12px;
@@ -114,7 +111,6 @@
     <div>━━▶ pupil / workshop (directional when known)</div>
     <div>– –▶ direct influence; – – collaboration if undirected</div>
     <div>····▶ parent→child / directional influence; ···· family if undirected</div>
-    <div style="margin-top:4px"></div>
   </div>
 
   <svg id="canvas" viewBox="0 0 1600 1250" aria-label="Trecento artist network mockup">
@@ -192,6 +188,44 @@
 </div>
 
 <script>
+
+const trustedChronology={
+  "giotto":1310,
+  "giotto di bondone":1310,
+  "duccio":1300,
+  "duccio di buoninsegna":1300,
+  "simone martini":1332,
+  "pietro lorenzetti":1328,
+  "ambrogio lorenzetti":1338,
+  "bernardo daddi":1335,
+  "taddeo gaddi":1342,
+  "agnolo gaddi":1382,
+  "orcagna":1355,
+  "andrea di cione":1355,
+  "jacopo di cione":1370,
+  "lorenzo veneziano":1365,
+  "paolo veneziano":1338,
+  "lorenzo di bicci":1395,
+  "bicci di lorenzo":1420,
+  "neri di bicci":1460
+};
+
+function trustedYearFor(rec, existing){
+  const names=[
+    String(existing?.full||"").toLowerCase(),
+    String(existing?.name||"").toLowerCase(),
+    String(rec?.seed_name||"").toLowerCase(),
+    String(rec?.canonical_name||"").toLowerCase()
+  ];
+  for(const n of names){
+    if(trustedChronology[n]!=null) return trustedChronology[n];
+  }
+  const y=Number(rec?.layout?.year);
+  if(Number.isFinite(y) && y!==1350) return y;
+  if(existing && Number.isFinite(existing.year)) return existing.year;
+  return null;
+}
+
 const artists = [
   {id:'giotto',name:'Giotto',full:'Giotto di Bondone',school:'Florence',year:1310,x:520,y:190,importance:1.4,wiki:'https://en.wikipedia.org/wiki/Giotto',activity:[
     {place:'Padua',label:'c. 1303–1305',x:1230,y:245,rx:135,ry:76},
@@ -313,41 +347,189 @@ function normalizedName(rec){
   return String(rec.canonical_name||rec.seed_name||"").toLowerCase().trim();
 }
 
+
 const anchorSpecs={
-  "Florence":{name:"Giotto",x:430},
-  "Siena":{name:"Duccio",x:980},
-  "Pisa":{name:null,x:1260},
-  "Rome":{name:"Pietro Cavallini",x:1510},
-  "Bologna":{name:"Vitale da Bologna",x:2020},
-  "Rimini":{name:"Giovanni da Rimini",x:2470},
-  "Veneto":{name:"Paolo Veneziano",x:2970},
-  "Naples":{name:null,x:3420},
-  "Unclassified Italy":{name:null,x:3800}
+  "Florence":{name:"Giotto"},
+  "Siena":{name:"Duccio"},
+  "Rome":{name:"Pietro Cavallini"},
+  "Bologna":{name:"Vitale da Bologna"},
+  "Rimini":{name:"Giovanni da Rimini"},
+  "Veneto":{name:"Paolo Veneziano"},
+  "Pisa":{name:null},
+  "Naples":{name:null}
 };
 
-function yForYear(year){
-  const min=1250,max=1480,top=70,bottom=1180;
-  const y=Math.max(min,Math.min(max,Number(year)||1350));
-  return top+((y-min)/(max-min))*(bottom-top);
+const regionOrder=["Florence","Siena","Pisa","Rome","Bologna","Rimini","Veneto","Naples"];
+
+const regionOverrides={
+  "lorenzo di niccolò":"Florence","lorenzo di niccolo":"Florence",
+  "niccolò di pietro gerini":"Florence","niccolo di pietro gerini":"Florence",
+  "master of the dominican effigies":"Florence",
+  "master of the saint cecilia altarpiece":"Florence",
+  "master of the codex of saint george":"Florence",
+  "master of the legend of the magdalen":"Florence",
+  "master of the magdalene":"Florence",
+  "stefano fiorentino":"Florence","maso di banco":"Florence",
+  "puccio capanna":"Florence","pacino di buonaguida":"Florence",
+  "jacopo del casentino":"Florence","giovanni da milano":"Florence",
+  "giottino":"Florence","mariotto di nardo":"Florence",
+  "nardo di cione":"Florence","jacopo di cione":"Florence",
+  "andrea di cione":"Florence","orcagna":"Florence",
+  "gherardo starnina":"Florence","cenni di francesco":"Florence",
+  "spinello aretino":"Florence","andrea bonaiuti":"Florence",
+  "francesco traini":"Pisa","buonamico buffalmacco":"Florence",
+  "lippo memmi":"Siena","barna da siena":"Siena",
+  "bartolo di fredi":"Siena","andrea vanni":"Siena",
+  "taddeo di bartolo":"Siena","niccolò di segna":"Siena",
+  "niccolo di segna":"Siena","segna di bonaventura":"Siena",
+  "ugolino di nerio":"Siena","meo da siena":"Siena",
+  "lorenzo veneziano":"Veneto","jacobello del fiore":"Veneto",
+  "guariento di arpo":"Veneto","giusto de' menabuoi":"Veneto",
+  "altichiero da zevio":"Veneto","vitale da bologna":"Bologna",
+  "simone dei crocifissi":"Bologna","dalmasio scannabecchi":"Bologna",
+  "giovanni da rimini":"Rimini","pietro da rimini":"Rimini",
+  "giuliano da rimini":"Rimini"
+};
+
+function normalizedRecName(rec){
+  return String(rec?.canonical_name||rec?.seed_name||"").toLowerCase().trim();
 }
 
 function regionForRecord(rec){
   if(rec.anchor_region) return rec.anchor_region;
+  const ov=regionOverrides[normalizedRecName(rec)];
+  if(ov) return ov;
+  const raw=rec.layout?.region;
+  if(raw && raw!=="Unclassified Italy") return raw;
 
-  const override=regionOverrides[normalizedName(rec)];
-  if(override) return override;
+  // No unclassified bucket. Infer from strongest connected regional neighbor/anchor.
+  const rels=importedDatabase.relationships||[];
+  const id=rec.ulan?.id;
+  const neighborIds=[];
+  for(const r of rels){
+    if(r.from_ulan===id) neighborIds.push(r.to_ulan);
+    if(r.to_ulan===id) neighborIds.push(r.from_ulan);
+  }
+  const votes={};
+  for(const nid of neighborIds){
+    const n=(importedDatabase.artists||[]).find(x=>x.ulan?.id===nid);
+    if(!n) continue;
+    const nr=n.anchor_region || regionOverrides[normalizedRecName(n)] || (n.layout?.region!=="Unclassified Italy" ? n.layout?.region : null);
+    if(nr) votes[nr]=(votes[nr]||0)+1;
+  }
+  const ranked=Object.entries(votes).sort((a,b)=>b[1]-a[1]);
+  if(ranked.length) return ranked[0][0];
 
-  const raw=rec.layout?.region || "Unclassified Italy";
-  if(raw!=="Unclassified Italy") return raw;
-
-  // One-degree anchor discoveries inherit the anchor's regional field only
-  // as a layout fallback, not as a historical claim.
   if(rec.discovered_from_anchor){
-    const parentRec=(importedDatabase.artists||[]).find(x=>x.ulan?.id===rec.discovered_from_anchor);
-    if(parentRec?.anchor_region) return parentRec.anchor_region;
+    const parent=(importedDatabase.artists||[]).find(x=>x.ulan?.id===rec.discovered_from_anchor);
+    if(parent?.anchor_region) return parent.anchor_region;
   }
 
-  return "Unclassified Italy";
+  // Last-resort visual placement only: nearest anchor family defaults to Florence
+  // rather than creating a garbage region. Mark confidence separately.
+  return "Florence";
+}
+
+function yForYear(year){
+  const min=1250,max=1480,top=80,bottom=1180;
+  if(!Number.isFinite(Number(year))) return null;
+  const y=Math.max(min,Math.min(max,Number(year)));
+  return top+((y-min)/(max-min))*(bottom-top);
+}
+
+function nodeFootprint(major, degree=0){
+  const radius=major ? 44+Math.min(18,degree*2.3) : 27+Math.min(14,degree*1.8);
+  const labelPad=major?58:44;
+  return {radius, clearance:radius+labelPad};
+}
+
+function computeDegreeMap(){
+  const d=new Map();
+  for(const a of artists) d.set(a.id,0);
+  for(const r of relationships){
+    d.set(r[0],(d.get(r[0])||0)+1);
+    d.set(r[1],(d.get(r[1])||0)+1);
+  }
+  return d;
+}
+
+function packRegion(records, region, left, degreeMap){
+  const majorNames=new Set([
+    "giotto","giotto di bondone","duccio","duccio di buoninsegna",
+    "pietro cavallini","paolo veneziano","vitale da bologna","giovanni da rimini",
+    "simone martini","pietro lorenzetti","ambrogio lorenzetti","orcagna","andrea di cione"
+  ]);
+
+  const sorted=[...records].sort((a,b)=>{
+    const ya=trustedYearFor(a,null) ?? 9999;
+    const yb=trustedYearFor(b,null) ?? 9999;
+    return ya-yb || normalizedRecName(a).localeCompare(normalizedRecName(b));
+  });
+
+  // Estimate width from local time-slice density, not raw node count.
+  const buckets={};
+  for(const r of sorted){
+    const y=trustedYearFor(r,null);
+    const bucket=Number.isFinite(y)?Math.round(y/15)*15:1350;
+    buckets[bucket]=(buckets[bucket]||0)+1;
+  }
+  const maxConcurrent=Math.max(1,...Object.values(buckets));
+  const laneSpacing=118;
+  const width=Math.max(330,220+maxConcurrent*laneSpacing);
+  const right=left+width;
+  const center=(left+right)/2;
+
+  const placed=[];
+  const result=[];
+  const lanes=[0,-1,1,-2,2,-3,3,-4,4,-5,5];
+
+  for(const rec of sorted){
+    const nm=normalizedRecName(rec);
+    const major=majorNames.has(nm);
+    const yVal=trustedYearFor(rec,null);
+    const baseY=yForYear(yVal);
+    if(baseY==null) continue;
+
+    let best=null;
+    const fakeDegree=0;
+    const fp=nodeFootprint(major,fakeDegree);
+
+    for(let ring=0;ring<6 && !best;ring++){
+      for(const lane of lanes){
+        const x=center+lane*laneSpacing+(ring%2?ring*18:-ring*18);
+        if(x<left+fp.clearance || x>right-fp.clearance) continue;
+
+        for(const yOff of [0,-24,24,-48,48,-72,72]){
+          const y=baseY+yOff;
+          let collision=false;
+          for(const p of placed){
+            const minSep=fp.clearance+p.clearance+12;
+            if(Math.hypot(x-p.x,y-p.y)<minSep){
+              collision=true; break;
+            }
+          }
+          if(!collision){best={x,y,clearance:fp.clearance};break;}
+        }
+        if(best) break;
+      }
+    }
+
+    if(!best){
+      // Expand region just enough to preserve the hard non-overlap rule.
+      let x=right+fp.clearance+30;
+      let y=baseY;
+      while(placed.some(p=>Math.hypot(x-p.x,y-p.y)<fp.clearance+p.clearance+12)){
+        x+=laneSpacing;
+      }
+      best={x,y,clearance:fp.clearance};
+    }
+
+    placed.push(best);
+    result.push({rec,x:best.x,y:best.y,major});
+  }
+
+  const actualRight=Math.max(right,...placed.map(p=>p.x+p.clearance));
+  return {nodes:result,right:actualRight,width:actualRight-left};
 }
 
 function materializeImportedGraph(){
@@ -357,96 +539,28 @@ function materializeImportedGraph(){
   const records=importedDatabase.artists||[];
   const byRegion={};
   for(const rec of records){
-    const r=regionForRecord(rec);
-    (byRegion[r]||(byRegion[r]=[])).push(rec);
+    const region=regionForRecord(rec);
+    (byRegion[region]||(byRegion[region]=[])).push(rec);
   }
 
-  // Widths expand with density, but regions are not drawn as boxes/columns.
-  let cursor=220;
-  const regionCenters={};
-  const regionWidths={};
-  const regionOrder=["Florence","Siena","Pisa","Rome","Bologna","Rimini","Veneto","Naples","Unclassified Italy"];
-
-  for(const region of regionOrder){
-    const count=(byRegion[region]||[]).length;
-    if(!count) continue;
-    const width=Math.max(420,260+count*62);
-    regionWidths[region]=width;
-    regionCenters[region]=cursor+width/2;
-    cursor += width+130;
-  }
-  const worldWidth=Math.max(1800,cursor+220);
-  canvas.setAttribute("viewBox",`0 0 ${worldWidth} 1250`);
-
-  layoutRegionBounds={};
-  for(const region of regionOrder){
-    if(!regionCenters[region] || !regionWidths[region]) continue;
-    layoutRegionBounds[region]={
-      left:regionCenters[region]-regionWidths[region]/2,
-      right:regionCenters[region]+regionWidths[region]/2,
-      center:regionCenters[region]
-    };
-  }
-
-  const majorNames=new Set([
-    "giotto","giotto di bondone","duccio","duccio di buoninsegna",
-    "pietro cavallini","paolo veneziano","vitale da bologna","giovanni da rimini",
-    "simone martini","pietro lorenzetti","ambrogio lorenzetti","orcagna","andrea di cione"
-  ]);
-
+  // Pack regions compactly with a dynamic gutter based on outer node footprints.
+  let cursor=150;
   const generated=[];
+  const degreeMap=new Map();
 
   for(const region of regionOrder){
-    const recs=[...(byRegion[region]||[])];
+    const recs=byRegion[region]||[];
     if(!recs.length) continue;
-    const center=regionCenters[region];
-    const width=regionWidths[region];
 
-    // Put the named anchor near the top/center of its territory.
-    const anchorName=(anchorSpecs[region]?.name||"").toLowerCase();
-    const anchorRec=recs.find(r=>
-      String(r.canonical_name||r.seed_name).toLowerCase().includes(anchorName)
-    );
+    const packed=packRegion(recs,region,cursor,degreeMap);
+    generated.push(...packed.nodes);
 
-    const others=recs.filter(r=>r!==anchorRec).sort((a,b)=>
-      (a.layout?.year||1350)-(b.layout?.year||1350)
-    );
-
-    if(anchorRec){
-      generated.push({
-        rec:anchorRec,
-        x:center,
-        y:yForYear(anchorRec.layout?.year||1300),
-        major:true
-      });
-    }
-
-    // Fan artists around the anchor/region center while keeping chronology vertical.
-    const lanes=[0,-1,1,-2,2,-3,3,-4,4];
-    const laneStep=Math.max(90,Math.min(145,width/7));
-    const placed=[];
-
-    for(let i=0;i<others.length;i++){
-      const rec=others[i];
-      const major=majorNames.has(String(rec.canonical_name||rec.seed_name).toLowerCase());
-      const baseY=yForYear(rec.layout?.year||1350);
-      let lane=lanes[i%lanes.length];
-      let ring=Math.floor(i/lanes.length);
-      let x=center + lane*laneStep + (ring%2?laneStep*.35:-laneStep*.35);
-      let y=baseY + ((i%5)-2)*22;
-
-      // Basic collision avoidance within region.
-      for(let tries=0;tries<24;tries++){
-        const minDist=major?125:82;
-        const clash=placed.some(p=>Math.hypot(x-p.x,y-p.y)<Math.max(minDist,p.minDist));
-        if(!clash) break;
-        x += (tries%2===0?1:-1)*(laneStep*.45 + tries*4);
-        y += ((tries%3)-1)*18;
-      }
-      placed.push({x,y,minDist:major?125:82});
-      generated.push({rec,x,y,major});
-    }
+    const gutter=95;
+    cursor=packed.right+gutter;
   }
+
+  const worldWidth=Math.max(1700,cursor+180);
+  canvas.setAttribute("viewBox",`0 0 ${worldWidth} 1250`);
 
   for(const g of generated){
     const rec=g.rec;
@@ -456,19 +570,22 @@ function materializeImportedGraph(){
 
     if(a){
       a.ulan_id=rec.ulan?.id||null;
-      a.year=rec.layout?.year||a.year;
+      const yr=trustedYearFor(rec,a);
+      if(Number.isFinite(yr)) a.year=yr;
       a.x=g.x;a.y=g.y;
       a.school=regionForRecord(rec);
       a.imported=true;
-      a.importance=g.major?1.35:Math.max(.82,a.importance||.82);
+      a.importance=g.major?1.32:Math.max(.82,a.importance||.82);
     }else{
+      const yr=trustedYearFor(rec,null);
+      if(!Number.isFinite(yr)) continue; // unresolved dates stay out of chronological graph
       artists.push({
         id:`ulan-${rec.ulan?.id||rec.seed_name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`,
         ulan_id:rec.ulan?.id||null,
         name:rec.canonical_name||rec.seed_name,
         full:rec.canonical_name||rec.seed_name,
         school:regionForRecord(rec),
-        year:rec.layout?.year||1350,
+        year:yr,
         x:g.x,y:g.y,
         importance:g.major?1.22:.80,
         wiki:"",
@@ -487,8 +604,7 @@ function materializeImportedGraph(){
     const key=[a.id,b.id].sort().join("|");
     relationshipMeta.set(key,{
       directed:Boolean(r.directed),
-      from:a.id,
-      to:b.id,
+      from:a.id,to:b.id,
       style:r.style||"dotted",
       meaning:r.meaning||"general influence",
       evidence:r.evidence||[]
@@ -499,10 +615,7 @@ function materializeImportedGraph(){
     );
     if(existing){
       if((strength[r.style]||0)>(strength[existing[2]]||0)){
-        existing[0]=a.id;
-        existing[1]=b.id;
-        existing[2]=r.style;
-        existing[3]=r.meaning||existing[3];
+        existing[0]=a.id;existing[1]=b.id;existing[2]=r.style;existing[3]=r.meaning||existing[3];
       }
     }else{
       relationships.push([a.id,b.id,r.style||"dotted",r.meaning||"general influence"]);
@@ -510,8 +623,42 @@ function materializeImportedGraph(){
   }
 
   addManualFamilyFallbacks();
-  optimizeConnectionLayout();
+
+  // Connection-aware relaxation is constrained INSIDE each region only.
+  relaxInsideRegions();
   scaleNodesByConnectivity();
+}
+
+function relaxInsideRegions(){
+  const bounds={};
+  for(const region of regionOrder){
+    const xs=artists.filter(a=>a.school===region).map(a=>a.x);
+    if(xs.length) bounds[region]={left:Math.min(...xs)-80,right:Math.max(...xs)+80};
+  }
+
+  const anchorTerms=["giotto","duccio","pietro cavallini","paolo veneziano","vitale da bologna","giovanni da rimini"];
+  const isAnchor=a=>anchorTerms.some(t=>a.full.toLowerCase().includes(t));
+
+  for(let iter=0;iter<12;iter++){
+    for(const a of artists){
+      if(isAnchor(a)) continue;
+      const ns=[];
+      for(const r of relationships){
+        if(r[0]===a.id){
+          const n=artists.find(x=>x.id===r[1]); if(n) ns.push(n);
+        }else if(r[1]===a.id){
+          const n=artists.find(x=>x.id===r[0]); if(n) ns.push(n);
+        }
+      }
+      const local=ns.filter(n=>n.school===a.school);
+      if(!local.length) continue;
+      const target=local.reduce((s,n)=>s+n.x,0)/local.length;
+      const b=bounds[a.school];
+      let nx=a.x+(target-a.x)*0.12;
+      if(b) nx=Math.max(b.left+45,Math.min(b.right-45,nx));
+      a.x=nx;
+    }
+  }
 }
 
 function addManualFamilyFallbacks(){
@@ -744,17 +891,6 @@ function render(){
 
   const selected=artists.find(a=>a.id===state.selected);
 
-  if(selected){
-    selected.activity.forEach(a=>{
-      const e=svgEl('ellipse',{cx:a.x,cy:a.y,rx:a.rx,ry:a.ry,class:'wash'});
-      world.appendChild(e);
-      const t=svgEl('text',{x:a.x,y:a.y-4,'text-anchor':'middle',class:'wash-label'});
-      t.textContent=`${selected.name} activity — ${a.place}`; world.appendChild(t);
-      const s=svgEl('text',{x:a.x,y:a.y+13,'text-anchor':'middle',class:'wash-sub'});
-      s.textContent=a.label; world.appendChild(s);
-    });
-  }
-
 
   const connectedIds=new Set();
   if(state.selected){
@@ -913,7 +1049,7 @@ canvas.addEventListener('mousedown',e=>{
 });
 window.addEventListener('mousemove',e=>{
   if(!state.dragging)return;
-  const PAN_SPEED=2.15;
+  const PAN_SPEED=2.4;
   state.tx=state.stx+(e.clientX-state.sx)*PAN_SPEED;
   state.ty=state.sty+(e.clientY-state.sy)*PAN_SPEED;
   render();
@@ -1053,8 +1189,20 @@ document.getElementById('crawlBtn').addEventListener('click',async()=>{
 document.getElementById('closeCrawl').addEventListener('click',()=>{
   document.getElementById('crawlDrawer').style.display='none';
 });
-loadImportedDatabase();
-overview();
+loadImportedDatabase().then(()=>{
+  requestAnimationFrame(()=>{
+    const giotto=artists.find(a=>a.full.toLowerCase().includes("giotto"));
+    if(giotto){
+      state.scale=1.05;
+      state.selected=null;
+      drawer.classList.remove("open");
+      focusOn(giotto.x,giotto.y);
+      render();
+    }else{
+      overview();
+    }
+  });
+});
 </script>
 </body>
 </html>
