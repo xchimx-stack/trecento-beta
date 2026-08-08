@@ -1,57 +1,39 @@
-# Trecento Network v0.6 — anchor expansion + directional relationships
+# Trecento Network v0.6.1 — connection-aware layout
 
-This revision implements the interaction/layout rules agreed before persistent-database work.
+This iteration addresses graph readability rather than expanding the dataset.
 
-## Hard-coded regional anchors
+## Changes
 
-- Florence — Giotto
-- Siena — Duccio
-- Rome — Pietro Cavallini
-- Veneto — Paolo Veneziano
-- Bologna — Vitale da Bologna
-- Rimini — Giovanni da Rimini
+### Cione family
+A proof-of-concept fallback explicitly connects:
+- Andrea di Cione (Orcagna)
+- Nardo di Cione
+- Jacopo di Cione
 
-These are visual starting anchors, not claims that each artist is literally the sole founder of the regional tradition.
+as siblings using undirected dotted general-influence links.
 
-## Organic layout
+This exists because the current ULAN display parser is still missing some family relations.
+The persistent database should ultimately store the sourced family relationship rather than rely on this fallback.
 
-Regions are no longer equal columns. Each region gets an elastic horizontal territory whose width grows with artist density.
+### Connection-aware layout
+After regional fan-out, a barycentric relaxation pass nudges connected artists toward one another horizontally.
 
-Artists fan around the regional anchor while chronology remains vertical. Collision avoidance spreads contemporaries horizontally.
+- chronology/Y position remains fixed
+- regional boundaries remain soft constraints
+- anchor artists stay fixed
+- collision resolution prevents same-region nodes from collapsing together
 
-No visible region boxes are drawn.
+This reduces needless edge zig-zags while retaining regional organization.
 
-## ULAN expansion
+### Faster navigation
+Drag-panning is now approximately 2.15× faster.
 
-The importer still begins with the curated seed list, but now performs a **one-degree expansion from the hard-coded regional anchors**.
+### Node prominence
+Node radius now grows automatically with graph degree.
 
-If an anchor's ULAN record names a related artist not already in the seed population, that related ULAN record is added to the proof dataset and enriched.
+High-connectivity artists such as Giotto, Gaddi, Simone Martini, etc. therefore become visibly larger hubs without needing a manually curated size list.
 
-This is specifically intended to test how real relationship density behaves before recursive expansion.
-
-## Relationship mapping and arrows
-
-### Solid
-teacher → pupil / workshop follower  
-employee/workshop relationships where direction is known
-
-### Dashed
-documented influence → influenced artist  
-collaboration / partnership stays undirected when ULAN does not imply direction
-
-### Dotted
-parent → child  
-siblings/family associations remain undirected
-
-Family alone is a baseline general-influence relationship. Stronger evidence upgrades the edge:
-solid > dashed > dotted.
-
-All source evidence remains retained behind the displayed edge.
-
-## Selection behavior
-
-- selected node remains light red
-- all directly connected nodes remain fully opaque
-- all directly connected edges remain fully opaque
-- unrelated graph context fades
-- selection does not change zoom
+### Selection
+The selected artist remains red.
+All directly connected artists remain fully opaque.
+Only unrelated context fades.

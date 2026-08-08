@@ -188,7 +188,7 @@
     <pre id="crawlPre" style="white-space:pre-wrap;font:12px/1.45 monospace;color:#555"></pre>
   </aside>
 
-  <div id="status">Earlier at top · later below · drag to pan · wheel to zoom</div>
+  <div id="status">Earlier at top · later below · fast-drag to pan · wheel to zoom</div>
 </div>
 
 <script>
@@ -251,6 +251,7 @@ const artists = [
 
 let importedDatabase={artists:[],relationships:[]};
 let relationshipMeta=new Map();
+let layoutRegionBounds={};
 let importedByName=new Map();
 let importedGraphLoaded=false;
 
@@ -305,6 +306,16 @@ function materializeImportedGraph(){
   }
   const worldWidth=Math.max(1800,cursor+220);
   canvas.setAttribute("viewBox",`0 0 ${worldWidth} 1250`);
+
+  layoutRegionBounds={};
+  for(const region of regionOrder){
+    if(!regionCenters[region] || !regionWidths[region]) continue;
+    layoutRegionBounds[region]={
+      left:regionCenters[region]-regionWidths[region]/2,
+      right:regionCenters[region]+regionWidths[region]/2,
+      center:regionCenters[region]
+    };
+  }
 
   const majorNames=new Set([
     "giotto","giotto di bondone","duccio","duccio di buoninsegna",
@@ -425,6 +436,126 @@ function materializeImportedGraph(){
     }else{
       relationships.push([a.id,b.id,r.style||"dotted",r.meaning||"general influence"]);
     }
+  }
+
+  addManualFamilyFallbacks();
+  optimizeConnectionLayout();
+  scaleNodesByConnectivity();
+}
+
+function addManualFamilyFallbacks(){
+  // Proof-of-concept safeguard for a known ULAN parsing gap:
+  // Andrea di Cione (Orcagna), Nardo di Cione and Jacopo di Cione are brothers.
+  // Sibling relation alone is shown as undirected dotted general influence.
+  const findBy = terms => artists.find(a=>{
+    const n=a.full.toLowerCase();
+    return terms.every(t=>n.includes(t));
+  });
+
+  const andrea = artists.find(a=>{
+    const n=a.full.toLowerCase();
+    return n.includes("orcagna") || (n.includes("andrea") && n.includes("cione"));
+  });
+  const nardo = findBy(["nardo","cione"]);
+  const jacopo = findBy(["jacopo","cione"]);
+
+  const pairs=[[andrea,nardo],[andrea,jacopo],[nardo,jacopo]];
+  for(const [a,b] of pairs){
+    if(!a||!b) continue;
+    const existing=relationships.find(r=>
+      (r[0]===a.id&&r[1]===b.id)||(r[0]===b.id&&r[1]===a.id)
+    );
+    if(!existing) relationships.push([a.id,b.id,"dotted","general influence"]);
+    const key=[a.id,b.id].sort().join("|");
+    if(!relationshipMeta.has(key)){
+      relationshipMeta.set(key,{
+        directed:false,
+        from:a.id,
+        to:b.id,
+        style:"dotted",
+        meaning:"general influence",
+        evidence:[{
+          source:"manual proof relationship",
+          source_relation:"sibling",
+          evidence_class:"family_sibling"
+        }]
+      });
+    }
+  }
+}
+
+function optimizeConnectionLayout(){
+  const anchorNames=[
+    "giotto","duccio","pietro cavallini","paolo veneziano",
+    "vitale da bologna","giovanni da rimini"
+  ];
+  const isAnchor=a=>anchorNames.some(n=>a.full.toLowerCase().includes(n));
+
+  const neighbors=new Map();
+  for(const a of artists) neighbors.set(a.id,[]);
+  for(const r of relationships){
+    if(!neighbors.has(r[0])||!neighbors.has(r[1])) continue;
+    neighbors.get(r[0]).push(r[1]);
+    neighbors.get(r[1]).push(r[0]);
+  }
+
+  // Barycentric relaxation: connected artists drift toward each other horizontally,
+  // while remaining inside their regional territory. Chronology (Y) is untouched.
+  for(let iter=0;iter<22;iter++){
+    const updates=[];
+    for(const a of artists){
+      if(isAnchor(a)) continue;
+      const ns=(neighbors.get(a.id)||[])
+        .map(id=>artists.find(x=>x.id===id))
+        .filter(Boolean);
+      if(!ns.length) continue;
+
+      const meanX=ns.reduce((s,n)=>s+n.x,0)/ns.length;
+      const bounds=layoutRegionBounds[a.school];
+      let target=a.x*.58 + meanX*.42;
+
+      if(bounds){
+        const margin=52;
+        target=Math.max(bounds.left+margin,Math.min(bounds.right-margin,target));
+      }
+      updates.push([a,target]);
+    }
+
+    for(const [a,target] of updates){
+      a.x += (target-a.x)*0.32;
+    }
+
+    // Collision resolution, mostly horizontal so chronology stays legible.
+    for(let i=0;i<artists.length;i++){
+      for(let j=i+1;j<artists.length;j++){
+        const a=artists[i], b=artists[j];
+        if(a.school!==b.school) continue;
+        const dx=b.x-a.x, dy=b.y-a.y;
+        const minDist=76;
+        const d=Math.hypot(dx,dy);
+        if(d>0 && d<minDist){
+          const push=(minDist-d)*0.52;
+          const sign=dx>=0?1:-1;
+          if(!isAnchor(a)) a.x-=push*sign;
+          if(!isAnchor(b)) b.x+=push*sign;
+        }
+      }
+    }
+  }
+}
+
+function scaleNodesByConnectivity(){
+  const degree=new Map(artists.map(a=>[a.id,0]));
+  for(const r of relationships){
+    degree.set(r[0],(degree.get(r[0])||0)+1);
+    degree.set(r[1],(degree.get(r[1])||0)+1);
+  }
+
+  for(const a of artists){
+    const d=degree.get(a.id)||0;
+    // Normal nodes remain compact; network hubs grow visibly.
+    const connectivityImportance=.80 + Math.min(.95,d*.105);
+    a.importance=Math.max(a.importance||.8,connectivityImportance);
   }
 }
 
@@ -568,8 +699,8 @@ function render(){
     const shouldFade = state.selected && state.selected!==a.id && !revealedMinor && !isNeighbor;
     const g=svgEl('g',{class:`node ${shouldFade?'faded':''}`,transform:`translate(${a.x} ${a.y})`});
     if(state.selected===a.id) g.classList.add('selected');
-    if(revealedMinor) g.style.opacity = '0.78';
-    const radius=26*a.importance;
+    if(revealedMinor || isNeighbor) g.style.opacity = '1';
+    const radius=27*a.importance;
     g.appendChild(svgEl('circle',{r:radius}));
     const t=svgEl('text',{'text-anchor':'middle',y:-2});
     t.textContent=a.name.toUpperCase(); g.appendChild(t);
@@ -664,8 +795,9 @@ canvas.addEventListener('mousedown',e=>{
 });
 window.addEventListener('mousemove',e=>{
   if(!state.dragging)return;
-  state.tx=state.stx+(e.clientX-state.sx);
-  state.ty=state.sty+(e.clientY-state.sy);
+  const PAN_SPEED=2.15;
+  state.tx=state.stx+(e.clientX-state.sx)*PAN_SPEED;
+  state.ty=state.sty+(e.clientY-state.sy)*PAN_SPEED;
   render();
 });
 window.addEventListener('mouseup',()=>{state.dragging=false;canvas.classList.remove('dragging')});
