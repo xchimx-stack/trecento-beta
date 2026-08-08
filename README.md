@@ -1,79 +1,48 @@
-# Trecento Network v0.5 — ULAN-only proof of concept
+# Trecento Network v0.5.1 — Getty ULAN reconciliation proof of concept
 
-This revision intentionally removes Wikipedia, Wikidata, and Wikimedia Commons from the deployment crawler.
+This revision replaces the failed one-shot SPARQL name query with Getty's
+**Vocabulary Reconciliation Service**, which is specifically intended to match
+text strings such as artist names to ULAN records.
 
-## Proof-of-concept goal
+## Crawl behavior
 
-Determine whether Getty ULAN alone can cheaply and reliably populate the initial artist identity layer.
+- ULAN only
+- 62 curated seed names
+- batches of 10 names
+- one reconciliation POST per batch
+- 500 ms pause between batches
+- retry/backoff for HTTP 429 and 503
+- candidate results are stored with ULAN ID, label, score, exact-match flag and up to five candidates
 
-The importer makes one batched SPARQL query for the curated seed list rather than several external
-requests per artist.
+No Wikipedia, Wikidata or Wikimedia Commons requests occur during deployment.
 
-## Crawler telemetry
+## Important scholarly safeguard
 
-Every crawl writes:
+Getty's reconciliation workflow itself is semi-automated. A candidate ULAN match
+is therefore recorded as `ulan_candidate`, not silently treated as verified identity.
 
-- `data/crawl-status.json`
-- copied to `public/crawl-status.json`
+## Crawl telemetry
 
-The site exposes this through the **Crawl status** button.
-
-Recorded fields include:
-- run ID
-- start/completion time
+The **Crawl status** drawer is now scrollable and shows:
+- source endpoint
 - duration
-- seed count
-- matched/unmatched count
-- HTTP request count
-- retries
-- HTTP 429 throttle events
-- HTTP 503 events
-- other HTTP errors
-- unmatched seed names
-- fatal error, if any
+- batch count
+- request count
+- matches/unmatched
+- retries and throttles
+- batch-by-batch HTTP status/latency/errors
+- unmatched names
 
-This is the prototype for the eventual backend observability tables.
+This telemetry will become database tables once the proof of concept is stable.
 
-## Planned database observability
+## Why reconciliation instead of SPARQL for discovery?
 
-When the persistent database is added, use at least:
+SPARQL remains useful for retrieving structured fields from a known ULAN ID.
+Name-to-entity matching is a different problem. Getty provides the reconciliation
+service specifically for this use case, so the intended future flow is:
 
-`crawl_runs`
-- crawl_run_id
-- source
-- started_at
-- completed_at
-- requested_count
-- success_count
-- failure_count
-- throttle_count
-- retry_count
-- status
-
-`source_request_events`
-- crawl_run_id
-- source
-- endpoint
-- artist/entity key
-- requested_at
-- response_status
-- retry_after
-- latency_ms
-- attempt_number
-
-`artist_enrichment_status`
-- artist_id
-- source
-- last_success_at
-- last_attempt_at
-- next_eligible_at
-- failure_count
-- last_http_status
-- enrichment_state
-
-That makes throttling visible and also lets incremental Wikipedia enrichment pause/resume intelligently.
-
-## Future Wikipedia strategy
-
-Wikipedia/Wikidata enrichment should be slow and incremental against the persistent database, not part
-of Vercel deployment. Commons thumbnails should remain lazy-loaded only when an artist is selected.
+1. Reconcile artist name → ULAN ID
+2. Store/review identity
+3. Retrieve structured ULAN fields for the known ID
+4. Later enrich slowly from Wikipedia/Wikidata
+5. Load Commons media only on artist selection
