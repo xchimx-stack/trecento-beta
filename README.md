@@ -1,41 +1,39 @@
-# Trecento Network v0.7.3 — structured ULAN relationships
+# Trecento Network v0.7.4 — Getty Full Record diagnostic
 
-This build fixes two failures observed in v0.7.2:
+This build stops guessing at unavailable JSON URLs.
 
-1. expansion remained around 63 records because the relationship candidate pool was nearly empty
-2. curated workshop edges lacked arrowheads
+## Relationship source
 
-## Structured ULAN relationship ingestion
+Artist identity still uses Getty's reconciliation service.
 
-For each reconciled ULAN ID the importer now attempts:
+For relationships, the crawler now reads Getty's current `ULANFullDisplay` record, specifically the
+`Related People or Corporate Bodies` section. This is the same current Getty page that visibly lists
+Giotto's teacher/student relationships.
 
-1. `https://vocab.getty.edu/ulan/{ID}.json`
-2. `https://vocab.getty.edu/ulan/{ID}.jsonld`
-3. Getty human-readable record page as a fallback
+## Giotto diagnostic
 
-The structured parser recursively inspects Getty relationship predicates and reified relationship objects.
-It explicitly recognizes Getty ULAN relationship codes 1101 (teacher of) and 1102 (student of),
-plus textual predicates for family, collaboration, employment, membership, and influence.
+`crawl-status.json` now contains `giotto_relationship_diagnostic`.
 
-The HTML fallback is now constrained strictly to the `Related People or Corporate Bodies` section,
-rather than applying a greedy regular expression to the whole record.
+A successful run should parse relationships including:
+- student of Cimabue
+- teacher of Puccio Capanna
+- teacher of Bernardo Daddi
+- teacher of Taddeo Gaddi
+- teacher of Maso di Banco
+- teacher of Roberto d'Oderisi
+- teacher of Stefano Fiorentino
 
-Crawler telemetry records how many records yielded structured relationships versus HTML fallback relationships.
+If that diagnostic is correct, controlled expansion can trust the same parser.
 
-## Direction normalization
+## Reduced API traffic
 
-Every relationship now has directional metadata when the evidence supports it.
+The invalid `.json` / `.jsonld` probes that caused most of the HTTP errors in v0.7.3 are removed.
+Each artist now needs the reconciliation stage plus one full-record fetch.
 
-Curated prototype edges are normalized as follows:
-- solid pupil/workshop edge: array order = master -> pupil, with arrow
-- dashed direct-influence edge: array order = influencer -> influenced, with arrow
-- undirected collaboration: no arrow
-- parent -> child: dotted arrow
-- sibling/family association: dotted line without arrow
+## Arrow fix
 
-This means curated chains such as Bicci di Lorenzo -> Neri di Bicci now receive arrowheads even if ULAN metadata is absent.
+The renderer now has two layers of direction handling:
+1. normalized relationship metadata where available
+2. a direct fallback: every curated solid workshop edge is treated as master -> pupil
 
-## Controlled expansion
-
-The +50 expansion cap remains.
-Once structured relationships populate the candidate pool, the graph should finally grow beyond the original seed set.
+Therefore Bicci di Lorenzo -> Neri di Bicci should display an arrow even if imported metadata fails.

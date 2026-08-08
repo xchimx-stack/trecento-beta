@@ -4,9 +4,8 @@ const SEEDS = new URL("../data/seed-artists.json", import.meta.url);
 const OUT = new URL("../data/imported-artists.json", import.meta.url);
 const STATUS = new URL("../data/crawl-status.json", import.meta.url);
 const RECONCILE = "https://services.getty.edu/vocab/reconcile/";
-const ULAN_PAGE = id => `https://vocab.getty.edu/page/ulan/${id}`;
-const ULAN_JSON = id => `https://vocab.getty.edu/ulan/${id}.json`;
-const ULAN_JSONLD = id => `https://vocab.getty.edu/ulan/${id}.jsonld`;
+const ULAN_PAGE = id => `https://www.getty.edu/vow/ULANFullDisplay?find=&nation=&role=&subjectid=${id}`;
+const ULAN_SEMANTIC_PAGE = id => `http://vocab.getty.edu/page/ulan/${id}`;
 
 const BATCH_SIZE = 10;
 const PAGE_CONCURRENCY = 5;
@@ -176,11 +175,11 @@ function relationFromLabel(type,currentId,relatedId,relatedLabel){
   let style="dotted", meaning="general influence", directed=false;
   let evidence_class="association";
 
-  if(type==="student of"){
+  if(type==="student of" || type==="apprentice of" || type==="master was"){
     from=relatedId; to=currentId;
     style="solid"; directed=true;
     meaning="pupil / workshop"; evidence_class="documented_training";
-  }else if(type==="teacher of"){
+  }else if(type==="teacher of" || type==="apprentice was" || type==="master of"){
     from=currentId; to=relatedId;
     style="solid"; directed=true;
     meaning="pupil / workshop"; evidence_class="documented_training";
@@ -360,45 +359,77 @@ function extractStructuredRelationships(data,currentId){
   return found;
 }
 
+
 function extractHtmlRelationships(text,currentId){
   const out=[];
+  const seen=new Set();
+
+  const start=text.indexOf("Related People or Corporate Bodies:");
+  if(start<0) return out;
+
+  let section=text.slice(start);
+  const stops=[
+    "List/Hierarchical Position:",
+    "Biographies:",
+    "Additional Names:",
+    "Sources and Contributors:"
+  ];
+  let stopAt=section.length;
+  for(const s of stops){
+    const i=section.indexOf(s);
+    if(i>=0 && i<stopAt) stopAt=i;
+  }
+  section=section.slice(0,stopAt);
+
+  // The full-record display normalizes to text like:
+  // student of .... Cimabue .... (bio) [500016284]
+  // teacher of .... Daddi, Bernardo .... (bio) [500004953]
   const relationTypes=[
-    "student of","teacher of","employee of","employee was","member of",
+    "student of","teacher of","apprentice of","apprentice was",
+    "master of","master was",
+    "employee of","employee was",
+    "member of",
     "worked with","partner of","collaborated with","associate of","associated with",
     "influenced by","influenced",
     "child of","parent of","sibling of","brother of","sister of"
   ];
-
-  // Work only inside Related People section, preventing greedy matches from running
-  // through the entire record.
-  const start=text.indexOf("Related People or Corporate Bodies:");
-  if(start<0) return out;
-  let section=text.slice(start);
-  const stop=section.search(/List\/Hierarchical Position:|Biographies:/i);
-  if(stop>0) section=section.slice(0,stop);
 
   const relAlt=relationTypes
     .sort((a,b)=>b.length-a.length)
     .map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"))
     .join("|");
 
+  // Match one relation at a time and stop the label before a parenthetical biography.
   const rx=new RegExp(
-    `(${relAlt})\\s*\\.{0,30}\\s*([^\\[]]{1,260}?)\\s*\\[(5\\d{8})\\]`,
+    `(${relAlt})\\s*\\.{0,40}\\s*([^\\[\\(]{1,180}?)(?:\\s*\\([^\\]]*?\\))?\\s*\\[(5\\d{8})\\]`,
     "gi"
   );
 
   for(const m of section.matchAll(rx)){
-    const rel=relationFromLabel(
-      m[1],
-      currentId,
-      m[3],
-      m[2].replace(/\.+/g," ").replace(/\s+/g," ").trim()
-    );
-    if(rel) out.push(rel);
+    const type=m[1].toLowerCase().replace(/\s+/g," ").trim();
+    const label=m[2]
+      .replace(/\.+/g," ")
+      .replace(/\s+/g," ")
+      .trim();
+
+    let normalized=type;
+    if(type==="apprentice of") normalized="student of";
+    if(type==="apprentice was") normalized="teacher of";
+    if(type==="master of") normalized="teacher of";
+    if(type==="master was") normalized="student of";
+
+    const rel=relationFromLabel(normalized,currentId,m[3],label);
+    if(!rel) continue;
+    rel.source_relation=type;
+
+    const key=[rel.source_relation,rel.related_id,rel.from_ulan,rel.to_ulan].join("|");
+    if(seen.has(key)) continue;
+    seen.add(key);
+    out.push(rel);
   }
+
   return out;
 }
-
 function mergeRelations(primary,fallback){
   const out=[], seen=new Set();
   for(const rel of [...primary,...fallback]){
@@ -410,72 +441,64 @@ function mergeRelations(primary,fallback){
 }
 
 
+
 async function enrichOne(base){
   if(!base.ulan.id) return base;
   run.detail_pages_requested++;
 
-  let structuredRelations=[];
-  let structuredFormat=null;
-  let structuredError=null;
-
-  for(const [format,url] of [
-    ["json",ULAN_JSON(base.ulan.id)],
-    ["jsonld",ULAN_JSONLD(base.ulan.id)]
-  ]){
-    try{
-      const r=await request(url,{headers:{"Accept":"application/json"}});
-      const j=await r.json();
-      structuredRelations=extractStructuredRelationships(j,base.ulan.id);
-      structuredFormat=format;
-      if(structuredRelations.length) break;
-    }catch(e){
-      structuredError=e.message;
-    }
-  }
-
   try{
-    const r=await request(ULAN_PAGE(base.ulan.id),{headers:{"Accept":"text/html"}});
+    const r=await request(ULAN_PAGE(base.ulan.id),{
+      headers:{
+        "Accept":"text/html,application/xhtml+xml"
+      }
+    });
     const html=await r.text();
     const text=decodeHtml(html);
     run.detail_pages_ok++;
 
-    const htmlRelations=extractHtmlRelationships(text,base.ulan.id);
-    const relationships=mergeRelations(structuredRelations,htmlRelations);
-
+    const relationships=extractHtmlRelationships(text,base.ulan.id);
     const region=deriveRegion(text);
     run.region_counts[region]=(run.region_counts[region]||0)+1;
+
+    if(base.ulan.id==="500010766"){
+      run.giotto_relationship_diagnostic={
+        parsed_count:relationships.length,
+        relationships:relationships.map(x=>({
+          relation:x.source_relation,
+          related_id:x.related_id,
+          related_label:x.related_label,
+          from_ulan:x.from_ulan,
+          to_ulan:x.to_ulan,
+          style:x.style,
+          directed:x.directed
+        }))
+      };
+    }
 
     return {
       ...base,
       ulan:{
         ...base.ulan,
         page_url:ULAN_PAGE(base.ulan.id),
+        semantic_page_url:ULAN_SEMANTIC_PAGE(base.ulan.id),
         summary:extractSummary(text),
-        relationship_source:structuredRelations.length
-          ? `structured_${structuredFormat}+html_fallback`
-          : "html_fallback"
+        relationship_source:"getty_full_record_display"
       },
       layout:{year:deriveYear(text),region},
       relationships,
       relationship_debug:{
-        structured_count:structuredRelations.length,
-        html_count:htmlRelations.length,
-        merged_count:relationships.length,
-        structured_format:structuredFormat,
-        structured_error:structuredError
+        html_count:relationships.length,
+        source:"getty_full_record_display"
       }
     };
   }catch(e){
     return {
       ...base,
       layout:{year:null,region:"Unclassified Italy"},
-      relationships:structuredRelations,
+      relationships:[],
       relationship_debug:{
-        structured_count:structuredRelations.length,
         html_count:0,
-        merged_count:structuredRelations.length,
-        structured_format:structuredFormat,
-        structured_error:structuredError,
+        source:"getty_full_record_display",
         html_error:e.message
       },
       detail_error:e.message
@@ -679,7 +702,6 @@ async function main(){
   run.discovered_count=enrichedDiscovered.length;
   run.total_artist_count=artists.length;
   run.records_with_relationships=artists.filter(a=>(a.relationships||[]).length>0).length;
-  run.structured_relationship_records=artists.filter(a=>(a.relationship_debug?.structured_count||0)>0).length;
   run.total_raw_relationships=artists.reduce((s,a)=>s+(a.relationships||[]).length,0);
 
   run.completed_at=new Date().toISOString();

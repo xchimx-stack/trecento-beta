@@ -857,6 +857,9 @@ function render(){
       marker = meta.style==='solid' ? 'url(#arrow-solid)' :
                meta.style==='dashed' ? 'url(#arrow-dashed)' :
                'url(#arrow-dotted)';
+    }else if(!meta && r[2]==='solid'){
+      // Curated workshop arrays are ordered master -> pupil.
+      marker='url(#arrow-solid)';
     }
 
     const l=svgEl('line',{
