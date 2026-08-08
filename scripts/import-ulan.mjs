@@ -5,6 +5,8 @@ const OUT = new URL("../data/imported-artists.json", import.meta.url);
 const STATUS = new URL("../data/crawl-status.json", import.meta.url);
 const RECONCILE = "https://services.getty.edu/vocab/reconcile/";
 const ULAN_PAGE = id => `https://vocab.getty.edu/page/ulan/${id}`;
+const ULAN_JSON = id => `https://vocab.getty.edu/ulan/${id}.json`;
+const ULAN_JSONLD = id => `https://vocab.getty.edu/ulan/${id}.jsonld`;
 
 const BATCH_SIZE = 10;
 const PAGE_CONCURRENCY = 5;
@@ -166,133 +168,320 @@ function extractSummary(text){
 
 
 
-function extractRelationships(text,currentId){
+
+function relationFromLabel(type,currentId,relatedId,relatedLabel){
+  type=String(type||"").toLowerCase().replace(/\s+/g," ").trim();
+
+  let from=currentId, to=relatedId;
+  let style="dotted", meaning="general influence", directed=false;
+  let evidence_class="association";
+
+  if(type==="student of"){
+    from=relatedId; to=currentId;
+    style="solid"; directed=true;
+    meaning="pupil / workshop"; evidence_class="documented_training";
+  }else if(type==="teacher of"){
+    from=currentId; to=relatedId;
+    style="solid"; directed=true;
+    meaning="pupil / workshop"; evidence_class="documented_training";
+  }else if(type==="employee of"){
+    from=relatedId; to=currentId;
+    style="solid"; directed=true;
+    meaning="pupil / workshop"; evidence_class="workshop_employment";
+  }else if(type==="employee was"){
+    from=currentId; to=relatedId;
+    style="solid"; directed=true;
+    meaning="pupil / workshop"; evidence_class="workshop_employment";
+  }else if(type.includes("member of")){
+    style="solid"; directed=false;
+    meaning="pupil / workshop"; evidence_class="workshop_membership";
+  }else if(type==="influenced by"){
+    from=relatedId; to=currentId;
+    style="dashed"; directed=true;
+    meaning="collaborator / direct influence"; evidence_class="direct_influence";
+  }else if(type==="influenced"){
+    from=currentId; to=relatedId;
+    style="dashed"; directed=true;
+    meaning="collaborator / direct influence"; evidence_class="direct_influence";
+  }else if(
+    type.includes("worked with") || type.includes("partner of") ||
+    type.includes("collaborated with") || type.includes("associate of") ||
+    type.includes("associated with")
+  ){
+    style="dashed"; directed=false;
+    meaning="collaborator / direct influence"; evidence_class="collaboration";
+  }else if(type==="parent of"){
+    from=currentId; to=relatedId;
+    style="dotted"; directed=true;
+    meaning="general influence"; evidence_class="family_parent_child";
+  }else if(type==="child of"){
+    from=relatedId; to=currentId;
+    style="dotted"; directed=true;
+    meaning="general influence"; evidence_class="family_parent_child";
+  }else if(
+    type.includes("sibling") || type.includes("brother") ||
+    type.includes("sister")
+  ){
+    style="dotted"; directed=false;
+    meaning="general influence"; evidence_class="family_sibling";
+  }else{
+    return null;
+  }
+
+  return {
+    current_id:currentId,
+    related_id:relatedId,
+    related_label:relatedLabel||`ULAN ${relatedId}`,
+    source_relation:type,
+    from_ulan:from,
+    to_ulan:to,
+    style, meaning, directed, evidence_class
+  };
+}
+
+function relationLabelFromPredicate(predicate){
+  const p=String(predicate||"").toLowerCase();
+
+  // Getty ULAN relationship codes documented by Getty:
+  // 1101 person teacher of person
+  // 1102 person student of person
+  if(/1101/.test(p)) return "teacher of";
+  if(/1102/.test(p)) return "student of";
+
+  const tests=[
+    ["teacher","teacher of"],["student","student of"],
+    ["child","child of"],["parent","parent of"],
+    ["sibling","sibling of"],["brother","brother of"],["sister","sister of"],
+    ["employee","employee of"],["member","member of"],
+    ["collabor","collaborated with"],["partner","partner of"],
+    ["associate","associate of"],["influencedby","influenced by"],
+    ["influenced_by","influenced by"],["influence","influenced"]
+  ];
+  for(const [needle,label] of tests){
+    if(p.replace(/[^a-z0-9_]/g,"").includes(needle)) return label;
+  }
+  return null;
+}
+
+function ulanIdFromValue(v){
+  if(typeof v==="string"){
+    const m=v.match(/ulan\/(5\d{8})/i) || v.match(/\b(5\d{8})\b/);
+    return m?.[1]||null;
+  }
+  if(v && typeof v==="object"){
+    for(const k of ["id","@id","uri","value"]){
+      const id=ulanIdFromValue(v[k]);
+      if(id) return id;
+    }
+  }
+  return null;
+}
+
+function labelFromValue(v){
+  if(typeof v==="string" && !/ulan\/5\d{8}/i.test(v)) return v;
+  if(v && typeof v==="object"){
+    for(const k of ["label","prefLabel","name","@value","value"]){
+      const x=v[k];
+      if(typeof x==="string" && !/ulan\/5\d{8}/i.test(x)) return x;
+      if(Array.isArray(x)){
+        const s=x.find(y=>typeof y==="string");
+        if(s) return s;
+      }
+    }
+  }
+  return null;
+}
+
+function extractStructuredRelationships(data,currentId){
+  const found=[];
+  const seen=new Set();
+
+  function add(type,relatedId,label){
+    if(!type || !relatedId || relatedId===currentId) return;
+    const rel=relationFromLabel(type,currentId,relatedId,label);
+    if(!rel) return;
+    const key=[rel.source_relation,rel.related_id,rel.from_ulan,rel.to_ulan].join("|");
+    if(seen.has(key)) return;
+    seen.add(key); found.push(rel);
+  }
+
+  function walk(node,path=[]){
+    if(node==null) return;
+    if(Array.isArray(node)){
+      for(const item of node) walk(item,path);
+      return;
+    }
+    if(typeof node!=="object") return;
+
+    for(const [key,val] of Object.entries(node)){
+      const relLabel=relationLabelFromPredicate(key);
+
+      if(relLabel){
+        const vals=Array.isArray(val)?val:[val];
+        for(const x of vals){
+          const rid=ulanIdFromValue(x);
+          if(rid) add(relLabel,rid,labelFromValue(x));
+        }
+      }
+
+      // Reified relationship objects often carry a relation/type plus a target.
+      if(val && typeof val==="object"){
+        const obj=val;
+        const candidateType=
+          relationLabelFromPredicate(obj.type) ||
+          relationLabelFromPredicate(obj["@type"]) ||
+          relationLabelFromPredicate(obj.relation) ||
+          relationLabelFromPredicate(obj.relationship) ||
+          relationLabelFromPredicate(obj.rel_type) ||
+          relationLabelFromPredicate(obj.predicate);
+
+        const rid=
+          ulanIdFromValue(obj.target) ||
+          ulanIdFromValue(obj.related) ||
+          ulanIdFromValue(obj.object) ||
+          ulanIdFromValue(obj.agent) ||
+          ulanIdFromValue(obj.person) ||
+          ulanIdFromValue(obj["@id"]);
+
+        if(candidateType && rid){
+          add(candidateType,rid,
+              labelFromValue(obj.target) ||
+              labelFromValue(obj.related) ||
+              labelFromValue(obj.object) ||
+              labelFromValue(obj));
+        }
+      }
+
+      walk(val,[...path,key]);
+    }
+  }
+
+  walk(data);
+  return found;
+}
+
+function extractHtmlRelationships(text,currentId){
   const out=[];
   const relationTypes=[
-    "student of","teacher of","employee of","member of",
-    "worked with","partner of","collaborated with",
+    "student of","teacher of","employee of","employee was","member of",
+    "worked with","partner of","collaborated with","associate of","associated with",
     "influenced by","influenced",
     "child of","parent of","sibling of","brother of","sister of"
   ];
 
-  const relAlt=relationTypes.map(x=>x.replaceAll(" ","\\s+")).join("|");
+  // Work only inside Related People section, preventing greedy matches from running
+  // through the entire record.
+  const start=text.indexOf("Related People or Corporate Bodies:");
+  if(start<0) return out;
+  let section=text.slice(start);
+  const stop=section.search(/List\/Hierarchical Position:|Biographies:/i);
+  if(stop>0) section=section.slice(0,stop);
+
+  const relAlt=relationTypes
+    .sort((a,b)=>b.length-a.length)
+    .map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"))
+    .join("|");
+
   const rx=new RegExp(
-    `(${relAlt})\\s*\\.{0,24}\\s*([^\\[]]{1,240}?)\\s*\\[(5\\d{8})\\]`,
+    `(${relAlt})\\s*\\.{0,30}\\s*([^\\[]]{1,260}?)\\s*\\[(5\\d{8})\\]`,
     "gi"
   );
 
-  for(const m of text.matchAll(rx)){
-    const type=m[1].toLowerCase().replace(/\s+/g," ").trim();
-    const relatedId=m[3];
-    const relatedLabel=m[2]
-      .replace(/\([^)]*\)\s*$/,"")
-      .replace(/\.+/g," ")
-      .replace(/\s+/g," ")
-      .trim();
-
-    let from=currentId;
-    let to=relatedId;
-    let style="dotted";
-    let meaning="general influence";
-    let directed=false;
-    let evidence_class="association";
-
-    if(type==="student of"){
-      // current artist is pupil -> arrow teacher -> current
-      from=relatedId; to=currentId;
-      style="solid"; directed=true;
-      meaning="pupil / workshop";
-      evidence_class="documented_training";
-    }else if(type==="teacher of"){
-      from=currentId; to=relatedId;
-      style="solid"; directed=true;
-      meaning="pupil / workshop";
-      evidence_class="documented_training";
-    }else if(type==="employee of"){
-      // employer/workshop -> employee
-      from=relatedId; to=currentId;
-      style="solid"; directed=true;
-      meaning="pupil / workshop";
-      evidence_class="workshop_employment";
-    }else if(type==="member of"){
-      // membership alone lacks reliable direction
-      style="solid"; directed=false;
-      meaning="pupil / workshop";
-      evidence_class="workshop_membership";
-    }else if(type==="influenced by"){
-      from=relatedId; to=currentId;
-      style="dashed"; directed=true;
-      meaning="collaborator / direct influence";
-      evidence_class="direct_influence";
-    }else if(type==="influenced"){
-      from=currentId; to=relatedId;
-      style="dashed"; directed=true;
-      meaning="collaborator / direct influence";
-      evidence_class="direct_influence";
-    }else if(type==="worked with" || type==="partner of" || type==="collaborated with"){
-      style="dashed"; directed=false;
-      meaning="collaborator / direct influence";
-      evidence_class="collaboration";
-    }else if(type==="parent of"){
-      from=currentId; to=relatedId;
-      style="dotted"; directed=true;
-      meaning="general influence";
-      evidence_class="family_parent_child";
-    }else if(type==="child of"){
-      from=relatedId; to=currentId;
-      style="dotted"; directed=true;
-      meaning="general influence";
-      evidence_class="family_parent_child";
-    }else if(type==="sibling of" || type==="brother of" || type==="sister of"){
-      style="dotted"; directed=false;
-      meaning="general influence";
-      evidence_class="family_sibling";
-    }
-
-    out.push({
-      current_id:currentId,
-      related_id:relatedId,
-      related_label:relatedLabel,
-      source_relation:type,
-      from_ulan:from,
-      to_ulan:to,
-      style,
-      meaning,
-      directed,
-      evidence_class
-    });
+  for(const m of section.matchAll(rx)){
+    const rel=relationFromLabel(
+      m[1],
+      currentId,
+      m[3],
+      m[2].replace(/\.+/g," ").replace(/\s+/g," ").trim()
+    );
+    if(rel) out.push(rel);
   }
   return out;
 }
 
+function mergeRelations(primary,fallback){
+  const out=[], seen=new Set();
+  for(const rel of [...primary,...fallback]){
+    const key=[rel.source_relation,rel.related_id,rel.from_ulan,rel.to_ulan].join("|");
+    if(seen.has(key)) continue;
+    seen.add(key); out.push(rel);
+  }
+  return out;
+}
+
+
 async function enrichOne(base){
   if(!base.ulan.id) return base;
   run.detail_pages_requested++;
+
+  let structuredRelations=[];
+  let structuredFormat=null;
+  let structuredError=null;
+
+  for(const [format,url] of [
+    ["json",ULAN_JSON(base.ulan.id)],
+    ["jsonld",ULAN_JSONLD(base.ulan.id)]
+  ]){
+    try{
+      const r=await request(url,{headers:{"Accept":"application/json"}});
+      const j=await r.json();
+      structuredRelations=extractStructuredRelationships(j,base.ulan.id);
+      structuredFormat=format;
+      if(structuredRelations.length) break;
+    }catch(e){
+      structuredError=e.message;
+    }
+  }
+
   try{
     const r=await request(ULAN_PAGE(base.ulan.id),{headers:{"Accept":"text/html"}});
     const html=await r.text();
     const text=decodeHtml(html);
     run.detail_pages_ok++;
+
+    const htmlRelations=extractHtmlRelationships(text,base.ulan.id);
+    const relationships=mergeRelations(structuredRelations,htmlRelations);
+
     const region=deriveRegion(text);
     run.region_counts[region]=(run.region_counts[region]||0)+1;
+
     return {
       ...base,
       ulan:{
         ...base.ulan,
         page_url:ULAN_PAGE(base.ulan.id),
-        summary:extractSummary(text)
+        summary:extractSummary(text),
+        relationship_source:structuredRelations.length
+          ? `structured_${structuredFormat}+html_fallback`
+          : "html_fallback"
       },
-      layout:{
-        year:deriveYear(text),
-        region
-      },
-      relationships:extractRelationships(text,base.ulan.id)
+      layout:{year:deriveYear(text),region},
+      relationships,
+      relationship_debug:{
+        structured_count:structuredRelations.length,
+        html_count:htmlRelations.length,
+        merged_count:relationships.length,
+        structured_format:structuredFormat,
+        structured_error:structuredError
+      }
     };
   }catch(e){
-    return {...base,layout:{year:1350,region:"Unclassified Italy"},relationships:[],detail_error:e.message};
+    return {
+      ...base,
+      layout:{year:null,region:"Unclassified Italy"},
+      relationships:structuredRelations,
+      relationship_debug:{
+        structured_count:structuredRelations.length,
+        html_count:0,
+        merged_count:structuredRelations.length,
+        structured_format:structuredFormat,
+        structured_error:structuredError,
+        html_error:e.message
+      },
+      detail_error:e.message
+    };
   }
 }
-
 async function mapLimit(items,limit,fn){
   const results=new Array(items.length);
   let next=0;
@@ -489,6 +678,9 @@ async function main(){
   run.expansion_cap=EXPANSION_CAP;
   run.discovered_count=enrichedDiscovered.length;
   run.total_artist_count=artists.length;
+  run.records_with_relationships=artists.filter(a=>(a.relationships||[]).length>0).length;
+  run.structured_relationship_records=artists.filter(a=>(a.relationship_debug?.structured_count||0)>0).length;
+  run.total_raw_relationships=artists.reduce((s,a)=>s+(a.relationships||[]).length,0);
 
   run.completed_at=new Date().toISOString();
   run.duration_ms=Date.now()-t0;

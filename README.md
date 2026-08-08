@@ -1,34 +1,41 @@
-# Trecento Network v0.7.2 — controlled ULAN expansion
+# Trecento Network v0.7.3 — structured ULAN relationships
 
-Purpose: stress-test the graph before persistent database work.
+This build fixes two failures observed in v0.7.2:
 
-## Expansion
+1. expansion remained around 63 records because the relationship candidate pool was nearly empty
+2. curated workshop edges lacked arrowheads
 
-The importer keeps the existing seed/anchor population and adds at most 50 additional ULAN records.
+## Structured ULAN relationship ingestion
 
-Expansion sources are ranked:
-1. hard-coded regional anchors
-2. highest-degree current artists
+For each reconciled ULAN ID the importer now attempts:
 
-Related artist candidates are prioritized:
-1. teacher/student/workshop
-2. family
-3. direct collaboration/influence
-4. other association
+1. `https://vocab.getty.edu/ulan/{ID}.json`
+2. `https://vocab.getty.edu/ulan/{ID}.jsonld`
+3. Getty human-readable record page as a fallback
 
-No recursive unlimited crawl occurs.
+The structured parser recursively inspects Getty relationship predicates and reified relationship objects.
+It explicitly recognizes Getty ULAN relationship codes 1101 (teacher of) and 1102 (student of),
+plus textual predicates for family, collaboration, employment, membership, and influence.
 
-## Layout
+The HTML fallback is now constrained strictly to the `Related People or Corporate Bodies` section,
+rather than applying a greedy regular expression to the whole record.
 
-Regional packing is tightened again to reduce unnecessary horizontal whitespace.
+Crawler telemetry records how many records yielded structured relationships versus HTML fallback relationships.
 
-The non-overlap rule remains hard:
-- tighter region widths
-- smaller inter-region gutters
-- slightly stronger collision clearance
+## Direction normalization
 
-Chronology and regional constraints remain unchanged.
+Every relationship now has directional metadata when the evidence supports it.
 
-## Expected scale
+Curated prototype edges are normalized as follows:
+- solid pupil/workshop edge: array order = master -> pupil, with arrow
+- dashed direct-influence edge: array order = influencer -> influenced, with arrow
+- undirected collaboration: no arrow
+- parent -> child: dotted arrow
+- sibling/family association: dotted line without arrow
 
-This build should land around roughly 100–120 total ULAN records depending on how many unique first-degree candidates Getty exposes.
+This means curated chains such as Bicci di Lorenzo -> Neri di Bicci now receive arrowheads even if ULAN metadata is absent.
+
+## Controlled expansion
+
+The +50 expansion cap remains.
+Once structured relationships populate the candidate pool, the graph should finally grow beyond the original seed set.

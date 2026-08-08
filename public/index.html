@@ -284,6 +284,38 @@ const artists = [
 
 let importedDatabase={artists:[],relationships:[]};
 let relationshipMeta=new Map();
+
+function normalizeCuratedRelationshipDirections(){
+  // Existing curated relationship arrays use [source, target, style, meaning].
+  // For solid pupil/workshop edges, array order is master/workshop -> pupil.
+  // For dashed "direct influence" edges, array order is influencer -> influenced.
+  // Dotted curated edges remain undirected unless family metadata says otherwise.
+  for(const r of relationships){
+    const [from,to,style,meaning]=r;
+    const key=[from,to].sort().join("|");
+    if(relationshipMeta.has(key)) continue;
+
+    if(style==="solid"){
+      relationshipMeta.set(key,{
+        directed:true,from,to,style,
+        meaning:meaning||"pupil / workshop",
+        evidence:[{source:"curated prototype",source_relation:"master/pupil"}]
+      });
+    }else if(style==="dashed" && /influence/i.test(meaning||"")){
+      relationshipMeta.set(key,{
+        directed:true,from,to,style,
+        meaning:meaning||"collaborator / direct influence",
+        evidence:[{source:"curated prototype",source_relation:"direct influence"}]
+      });
+    }else{
+      relationshipMeta.set(key,{
+        directed:false,from,to,style,
+        meaning:meaning||"general relationship",
+        evidence:[{source:"curated prototype"}]
+      });
+    }
+  }
+}
 let layoutRegionBounds={};
 let importedByName=new Map();
 let importedGraphLoaded=false;
@@ -562,6 +594,7 @@ function materializeImportedGraph(){
   }
 
   addManualFamilyFallbacks();
+  normalizeCuratedRelationshipDirections();
   optimizeConnectionLayout();
   scaleNodesByConnectivity();
 }
@@ -1039,7 +1072,8 @@ async function loadImportedDatabase(){
       importedByName.set(String(rec.canonical_name||'').toLowerCase(),rec);
     });
     materializeImportedGraph();
-    document.getElementById('dataStatus').textContent=`${importedDatabase.count || importedDatabase.artists?.length || 0} ULAN records loaded`;
+    document.getElementById('dataStatus').textContent=
+      `${importedDatabase.count || importedDatabase.artists?.length || 0} ULAN records · ${(importedDatabase.relationships||[]).length} relationships`;
     render();
   }catch(e){
     document.getElementById('dataStatus').textContent='Artist database unavailable';
@@ -1094,6 +1128,7 @@ document.getElementById('crawlBtn').addEventListener('click',async()=>{
 document.getElementById('closeCrawl').addEventListener('click',()=>{
   document.getElementById('crawlDrawer').style.display='none';
 });
+normalizeCuratedRelationshipDirections();
 loadImportedDatabase().then(()=>{
   requestAnimationFrame(()=>{
     const giotto=artists.find(a=>a.full.toLowerCase().includes("giotto"));
