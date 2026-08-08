@@ -1,37 +1,38 @@
-# Trecento Network v0.7.5 — Tuscany-centered compact layout
+# Trecento Network v0.7.6 — validation + canonical cleanup
 
-Importer is unchanged from v0.7.4.
+## ULAN record hygiene
+- related ULAN IDs are fetched normally
+- displayed node name is taken from the related record's preferred ULAN name
+- relationship prose is never trusted as the final node label
+- corporate-body records (e.g. Gaddi family) are excluded from artist expansion
+- sentence-like contaminated labels are rejected
 
-## Geographic grammar
+## Cione-family stability
+Nardo di Cione is a critical proof node and cannot silently disappear.
+If import/materialization fails to create him, the browser creates a temporary Florentine fallback node.
 
-Tuscany is fixed at the visual center:
+Expected family edges:
+- Orcagna — Nardo: dotted undirected sibling baseline
+- Nardo — Jacopo: dotted undirected sibling baseline
+- Nardo -> Mariotto: dotted directional parent/child baseline
 
-Naples / Rome / Pisa <- Florence / Siena -> Bologna / Rimini / Veneto
+## Visible arrows
+Edges are now geometrically clipped to the source/target node boundaries.
+Arrowheads terminate outside the target circle instead of being hidden underneath it.
 
-The ordering is approximate visual geography, not a literal map.
+All curated solid pupil/workshop edges are directional master -> pupil unless explicit metadata says otherwise.
 
-## Dense-region behavior
+## Runtime validation
+The data-status badge reports validation X/6.
 
-Region width is driven by the maximum density of artists active in overlapping 20-year bands.
+The six required tests are:
+1. Nardo exists
+2. Orcagna—Nardo dotted
+3. Nardo—Jacopo dotted
+4. Nardo->Mariotto dotted + directional
+5. Giotto->Bernardo Daddi solid + directional
+6. Bicci di Lorenzo->Neri di Bicci solid + directional
 
-Florence therefore expands more than Bologna or Rimini when it has more contemporaneous nodes.
-
-## Label-aware collision
-
-Spacing now estimates both:
-- node-circle footprint
-- rendered artist-name width
-
-This prevents the prior situation where circles technically did not overlap but labels did.
-
-## Compactness
-
-Regions are packed outward from Tuscany with a 70px base gutter.
-Large empty gaps are no longer created from a raw artist-count multiplier.
-
-Hard non-overlap still takes precedence over compactness.
-
-## Startup
-
-The default view centers on Giotto at a readable zoom.
-Overview remains available for the full graph.
+## Regional flow
+Extra regional gutters are reduced to ordinary node-clearance scale.
+Florence and Siena anchors sit toward the shared Tuscan core rather than at the centers of very wide independent blocks.

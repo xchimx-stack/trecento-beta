@@ -442,6 +442,41 @@ function mergeRelations(primary,fallback){
 
 
 
+
+function extractRecordIdentity(text){
+  // Getty Full Record text normalizes as:
+  // Record Type: Person Giotto (Italian painter...)
+  // Names: Giotto (preferred,...)
+  const typeMatch=text.match(/Record Type:\s*([A-Za-z ]+?)\s+(?=[^\n]{1,180}?\()/i);
+  const record_type=typeMatch?.[1]?.trim() || null;
+
+  let preferred_name=null;
+  const namesStart=text.indexOf("Names:");
+  if(namesStart>=0){
+    let names=text.slice(namesStart);
+    const stop=names.search(/Nationalities:|Roles:|Gender:|Related People or Corporate Bodies:/i);
+    if(stop>0) names=names.slice(0,stop);
+
+    // Preferred/display name is the first name marked preferred.
+    const pref=names.match(/Names:\s*(.+?)\s*\(preferred[^)]*\)/i);
+    if(pref) preferred_name=pref[1].replace(/\.+/g," ").replace(/\s+/g," ").trim();
+  }
+
+  if(!preferred_name){
+    const rec=text.match(/Record Type:\s*(?:Person|Corporate Body)\s+(.+?)\s*\(/i);
+    if(rec) preferred_name=rec[1].replace(/\s+/g," ").trim();
+  }
+
+  return {record_type,preferred_name};
+}
+
+function saneArtistLabel(label){
+  const s=String(label||"").trim();
+  if(!s || s.length>90) return false;
+  if(/\b(probably|believe|documented|workshop\s+\d|plague|same artist|few scholars|active in|was the|was probably)\b/i.test(s)) return false;
+  return true;
+}
+
 async function enrichOne(base){
   if(!base.ulan.id) return base;
   run.detail_pages_requested++;
@@ -456,6 +491,7 @@ async function enrichOne(base){
     const text=decodeHtml(html);
     run.detail_pages_ok++;
 
+    const identity=extractRecordIdentity(text);
     const relationships=extractHtmlRelationships(text,base.ulan.id);
     const region=deriveRegion(text);
     run.region_counts[region]=(run.region_counts[region]||0)+1;
@@ -477,6 +513,8 @@ async function enrichOne(base){
 
     return {
       ...base,
+      canonical_name:saneArtistLabel(identity.preferred_name) ? identity.preferred_name : base.canonical_name,
+      record_type:identity.record_type,
       ulan:{
         ...base.ulan,
         page_url:ULAN_PAGE(base.ulan.id),
@@ -643,7 +681,12 @@ async function main(){
   }));
 
   const enrichedDiscovered=await mapLimit(discovered,PAGE_CONCURRENCY,enrichOne);
-  artists.push(...enrichedDiscovered);
+  const personDiscoveries=enrichedDiscovered.filter(a=>{
+    const t=String(a.record_type||"").toLowerCase();
+    if(t && t!=="person") return false;
+    return saneArtistLabel(a.canonical_name);
+  });
+  artists.push(...personDiscoveries);
 
   // Build graph relationships across all retained records.
   const ids=new Set(artists.map(a=>a.ulan.id).filter(Boolean));
@@ -699,7 +742,7 @@ async function main(){
   const graphRelationships=[...byPair.values()];
   run.relationship_count=graphRelationships.length;
   run.expansion_cap=EXPANSION_CAP;
-  run.discovered_count=enrichedDiscovered.length;
+  run.discovered_count=personDiscoveries.length;
   run.total_artist_count=artists.length;
   run.records_with_relationships=artists.filter(a=>(a.relationships||[]).length>0).length;
   run.total_raw_relationships=artists.reduce((s,a)=>s+(a.relationships||[]).length,0);
@@ -719,7 +762,7 @@ async function main(){
 
   await fs.writeFile(STATUS,JSON.stringify(run,null,2));
 
-  console.log(`Controlled ULAN expansion: ${artists.length} total records, ${enrichedDiscovered.length} added.`);
+  console.log(`Controlled ULAN expansion: ${artists.length} total records, ${personDiscoveries.length} person records added.`);
   console.log(`Relationships: ${graphRelationships.length}; duration ${run.duration_ms}ms.`);
 }
 main().catch(async e=>{

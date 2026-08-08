@@ -115,14 +115,14 @@
 
   <svg id="canvas" viewBox="0 0 1600 1250" aria-label="Trecento artist network mockup">
     <defs>
-      <marker id="arrow-solid" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
-        <path d="M0,0 L8,4 L0,8 z" fill="#2c2c2c"></path>
+      <marker id="arrow-solid" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto" markerUnits="userSpaceOnUse" overflow="visible">
+        <path d="M0,0 L10,5.5 L0,11 z" fill="#2c2c2c"></path>
       </marker>
-      <marker id="arrow-dashed" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
-        <path d="M0,0 L8,4 L0,8 z" fill="#2c2c2c"></path>
+      <marker id="arrow-dashed" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto" markerUnits="userSpaceOnUse" overflow="visible">
+        <path d="M0,0 L10,5.5 L0,11 z" fill="#2c2c2c"></path>
       </marker>
-      <marker id="arrow-dotted" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
-        <path d="M0,0 L8,4 L0,8 z" fill="#2c2c2c"></path>
+      <marker id="arrow-dotted" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto" markerUnits="userSpaceOnUse" overflow="visible">
+        <path d="M0,0 L10,5.5 L0,11 z" fill="#2c2c2c"></path>
       </marker>
     </defs>
     <g id="world"></g>
@@ -202,6 +202,8 @@ const trustedChronology={
   "orcagna":1355,
   "andrea di cione":1355,
   "jacopo di cione":1370,
+  "nardo di cione":1358,
+  "mariotto di nardo":1409,
   "lorenzo veneziano":1365,
   "paolo veneziano":1338,
   "lorenzo di bicci":1395,
@@ -521,7 +523,7 @@ function materializeImportedGraph(){
   }
 
   // Center Florence/Siena around the visual origin.
-  const centerGap=70;
+  const centerGap=28;
   const florW=regionWidths["Florence"]||420;
   const sienW=regionWidths["Siena"]||380;
   const centralTotal=florW+centerGap+sienW;
@@ -535,21 +537,21 @@ function materializeImportedGraph(){
   };
 
   // Pack left side outward from Florence.
-  let leftCursor=regionBounds["Florence"].left-70;
+  let leftCursor=regionBounds["Florence"].left-32;
   for(const region of [...leftRegions].reverse()){
     const w=regionWidths[region];
     if(!w) continue;
     regionBounds[region]={left:leftCursor-w,right:leftCursor};
-    leftCursor-=w+70;
+    leftCursor-=w+32;
   }
 
   // Pack right side outward from Siena.
-  let rightCursor=regionBounds["Siena"].right+70;
+  let rightCursor=regionBounds["Siena"].right+32;
   for(const region of rightRegions){
     const w=regionWidths[region];
     if(!w) continue;
     regionBounds[region]={left:rightCursor,right:rightCursor+w};
-    rightCursor+=w+70;
+    rightCursor+=w+32;
   }
 
   // Any unexpected region is tucked beside its nearest known Italian field,
@@ -558,7 +560,7 @@ function materializeImportedGraph(){
     if(regionBounds[region]) continue;
     const w=regionWidths[region]||300;
     regionBounds[region]={left:rightCursor,right:rightCursor+w};
-    rightCursor+=w+60;
+    rightCursor+=w+32;
   }
 
   // Shift everything positive for SVG coordinates.
@@ -606,7 +608,9 @@ function materializeImportedGraph(){
       const isAnchor=anchorName &&
         String(rec.canonical_name||rec.seed_name).toLowerCase().includes(anchorName);
 
-      const desiredX=isAnchor ? bounds.center : bounds.center;
+      let desiredX=bounds.center;
+      if(isAnchor && region==="Florence") desiredX=bounds.right-Math.min(150,bounds.right-bounds.left-80);
+      if(isAnchor && region==="Siena") desiredX=bounds.left+Math.min(150,bounds.right-bounds.left-80);
       const step=86;
       const offsets=[0,-1,1,-2,2,-3,3,-4,4,-5,5,-6,6];
 
@@ -738,6 +742,7 @@ function materializeImportedGraph(){
     }
   }
 
+  ensureCriticalCioneNodes();
   addManualFamilyFallbacks();
   normalizeCuratedRelationshipDirections();
   scaleNodesByConnectivity();
@@ -760,6 +765,63 @@ function materializeImportedGraph(){
       const bounds=regionBounds[region];
       const proposed=a.x+(target-a.x)*0.08;
       a.x=Math.max(bounds.left+42,Math.min(bounds.right-42,proposed));
+    }
+  }
+}
+
+
+function ensureCriticalCioneNodes(){
+  const has=(terms)=>artists.find(a=>{
+    const n=a.full.toLowerCase();
+    return terms.every(t=>n.includes(t));
+  });
+
+  if(!has(["nardo","cione"])){
+    const rec=(importedDatabase.artists||[]).find(r=>
+      String(r.seed_name||"").toLowerCase().includes("nardo di cione") ||
+      String(r.canonical_name||"").toLowerCase().includes("nardo di cione")
+    );
+    const orcagna=artists.find(a=>a.id==="orcagna") || has(["andrea","cione"]);
+    const jacopo=has(["jacopo","cione"]);
+    const x=((orcagna?.x||600)+(jacopo?.x||760))/2;
+    const y=yForYear(1358) || 560;
+    artists.push({
+      id:"nardo-di-cione",
+      ulan_id:rec?.ulan?.id||null,
+      name:"Nardo di Cione",
+      full:"Nardo di Cione",
+      school:"Florence",
+      year:1358,
+      x:x+65,y,
+      importance:.95,
+      wiki:"",
+      activity:[],
+      imported:Boolean(rec),
+      critical_fallback:true
+    });
+  }
+
+  if(!has(["mariotto","nardo"])){
+    const rec=(importedDatabase.artists||[]).find(r=>
+      String(r.seed_name||"").toLowerCase().includes("mariotto di nardo") ||
+      String(r.canonical_name||"").toLowerCase().includes("mariotto di nardo")
+    );
+    if(rec){
+      const nardo=has(["nardo","cione"]);
+      artists.push({
+        id:"mariotto-di-nardo",
+        ulan_id:rec.ulan?.id||null,
+        name:"Mariotto di Nardo",
+        full:"Mariotto di Nardo",
+        school:"Florence",
+        year:trustedYearFor(rec,null)||1409,
+        x:(nardo?.x||650)+100,
+        y:yForYear(trustedYearFor(rec,null)||1409),
+        importance:.88,
+        wiki:"",
+        activity:[],
+        imported:true
+      });
     }
   }
 }
@@ -959,6 +1021,26 @@ function svgEl(tag, attrs={}){
   return el;
 }
 
+
+function renderedNodeRadius(a){
+  return Math.max(18,27*(a.importance||.8));
+}
+
+function clippedEdge(from,to,directed=false){
+  const dx=to.x-from.x, dy=to.y-from.y;
+  const d=Math.hypot(dx,dy)||1;
+  const ux=dx/d, uy=dy/d;
+  const r1=renderedNodeRadius(from)+3;
+  // Directed edges stop just outside target circle so arrowhead is visible.
+  const r2=renderedNodeRadius(to)+(directed?9:3);
+  return {
+    x1:from.x+ux*r1,
+    y1:from.y+uy*r1,
+    x2:to.x-ux*r2,
+    y2:to.y-uy*r2
+  };
+}
+
 function render(){
   world.innerHTML='';
   world.setAttribute('transform',`translate(${state.tx} ${state.ty}) scale(${state.scale})`);
@@ -1012,20 +1094,26 @@ function render(){
     const isConnected=state.selected && (r[0]===state.selected || r[1]===state.selected);
     const cls=`edge ${r[2]==='dashed'?'dashed':r[2]==='dotted'?'dotted':''} ${state.selected && !isConnected?'faded':''}`;
 
-    let x1=a.x,y1=a.y,x2=b.x,y2=b.y;
+    let source=a,target=b;
     let marker=null;
+    let directed=false;
 
     if(meta?.directed){
       const from=artists.find(x=>x.id===meta.from);
       const to=artists.find(x=>x.id===meta.to);
-      if(from&&to){x1=from.x;y1=from.y;x2=to.x;y2=to.y;}
+      if(from&&to){source=from;target=to;}
+      directed=true;
       marker = meta.style==='solid' ? 'url(#arrow-solid)' :
                meta.style==='dashed' ? 'url(#arrow-dashed)' :
                'url(#arrow-dotted)';
     }else if(!meta && r[2]==='solid'){
-      // Curated workshop arrays are ordered master -> pupil.
+      directed=true;
+      source=a;target=b;
       marker='url(#arrow-solid)';
     }
+
+    const clipped=clippedEdge(source,target,directed);
+    const {x1,y1,x2,y2}=clipped;
 
     const l=svgEl('line',{
       x1,y1,x2,y2,
@@ -1296,9 +1384,50 @@ document.getElementById('crawlBtn').addEventListener('click',async()=>{
 document.getElementById('closeCrawl').addEventListener('click',()=>{
   document.getElementById('crawlDrawer').style.display='none';
 });
+
+function runGraphValidation(){
+  const find=(terms)=>artists.find(a=>{
+    const n=a.full.toLowerCase();
+    return terms.every(t=>n.includes(t));
+  });
+  const edge=(a,b)=>a&&b&&relationships.find(r=>
+    (r[0]===a.id&&r[1]===b.id)||(r[0]===b.id&&r[1]===a.id)
+  );
+  const meta=(a,b)=>a&&b&&relationshipMeta.get([a.id,b.id].sort().join("|"));
+
+  const orcagna=find(["orcagna"])||find(["andrea","cione"]);
+  const nardo=find(["nardo","cione"]);
+  const jacopo=find(["jacopo","cione"]);
+  const mariotto=find(["mariotto","nardo"]);
+  const giotto=find(["giotto"]);
+  const daddi=find(["bernardo","daddi"]);
+  const bicci=find(["bicci di lorenzo"]);
+  const neri=find(["neri di bicci"]);
+
+  const tests=[
+    ["Nardo present",Boolean(nardo)],
+    ["Orcagna—Nardo dotted",edge(orcagna,nardo)?.[2]==="dotted"],
+    ["Nardo—Jacopo dotted",edge(nardo,jacopo)?.[2]==="dotted"],
+    ["Nardo→Mariotto directed dotted",edge(nardo,mariotto)?.[2]==="dotted" && meta(nardo,mariotto)?.directed],
+    ["Giotto→Daddi directed solid",edge(giotto,daddi)?.[2]==="solid" && meta(giotto,daddi)?.directed],
+    ["Bicci→Neri directed solid",edge(bicci,neri)?.[2]==="solid" && meta(bicci,neri)?.directed]
+  ];
+
+  window.__trecentoValidation=tests;
+  const passed=tests.filter(x=>x[1]).length;
+  const badge=document.getElementById("dataStatus");
+  if(badge){
+    const base=badge.textContent.replace(/\s*· validation.*$/,"");
+    badge.textContent=`${base} · validation ${passed}/${tests.length}`;
+    if(passed<tests.length) badge.style.borderColor="#b35b5b";
+  }
+  return tests;
+}
+
 normalizeCuratedRelationshipDirections();
 loadImportedDatabase().then(()=>{
   requestAnimationFrame(()=>{
+    runGraphValidation();
     const giotto=artists.find(a=>a.full.toLowerCase().includes("giotto"));
     if(giotto){
       state.scale=1.08;
