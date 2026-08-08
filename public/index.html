@@ -378,23 +378,49 @@ function normalizedName(rec){
   return String(rec.canonical_name||rec.seed_name||"").toLowerCase().trim();
 }
 
+
 const anchorSpecs={
-  "Florence":{name:"Giotto",x:430},
-  "Siena":{name:"Duccio",x:980},
-  "Pisa":{name:null,x:1260},
-  "Rome":{name:"Pietro Cavallini",x:1510},
-  "Bologna":{name:"Vitale da Bologna",x:2020},
-  "Rimini":{name:"Giovanni da Rimini",x:2470},
-  "Veneto":{name:"Paolo Veneziano",x:2970},
-  "Naples":{name:null,x:3420},
-  "Unclassified Italy":{name:null,x:3800}
+  "Florence":{name:"Giotto"},
+  "Siena":{name:"Duccio"},
+  "Pisa":{name:null},
+  "Rome":{name:"Pietro Cavallini"},
+  "Naples":{name:null},
+  "Bologna":{name:"Vitale da Bologna"},
+  "Rimini":{name:"Giovanni da Rimini"},
+  "Veneto":{name:"Paolo Veneziano"}
 };
 
+// Tuscany is the visual center.
+// South/west of Tuscany goes left; north/east goes right.
+const leftRegions=["Naples","Rome","Pisa"];
+const centerRegions=["Florence","Siena"];
+const rightRegions=["Bologna","Rimini","Veneto"];
+
 function yForYear(year){
-  const min=1250,max=1480,top=70,bottom=1180;
-  const y=Math.max(min,Math.min(max,Number(year)||1350));
+  const min=1250,max=1480,top=80,bottom=1180;
+  if(!Number.isFinite(Number(year))) return null;
+  const y=Math.max(min,Math.min(max,Number(year)));
   return top+((y-min)/(max-min))*(bottom-top);
 }
+
+function estimateLabelWidth(name, importance=1){
+  const s=String(name||"");
+  // Approximate rendered uppercase SVG label width.
+  // Prevents long names from colliding even when circles do not.
+  return Math.min(220, Math.max(56, s.length * (importance>1.15 ? 6.8 : 6.1)));
+}
+
+function footprintFor(rec, major=false, degree=0){
+  const name=rec?.canonical_name || rec?.seed_name || "";
+  const radius=major ? 38 + Math.min(20, degree*2.2) : 24 + Math.min(14, degree*1.55);
+  const labelHalf=estimateLabelWidth(name, major?1.25:1)/2;
+  return {
+    radius,
+    halfWidth:Math.max(radius+14,labelHalf+12),
+    halfHeight:radius+24
+  };
+}
+
 
 function regionForRecord(rec){
   if(rec.anchor_region) return rec.anchor_region;
@@ -434,104 +460,222 @@ function regionForRecord(rec){
   return "Florence";
 }
 
+
 function materializeImportedGraph(){
   if(importedGraphLoaded) return;
   importedGraphLoaded=true;
 
   const records=importedDatabase.artists||[];
+
+  // Assign regions first.
   const byRegion={};
   for(const rec of records){
     const r=regionForRecord(rec);
     (byRegion[r]||(byRegion[r]=[])).push(rec);
   }
 
-  // Widths expand with density, but regions are not drawn as boxes/columns.
-  let cursor=220;
-  const regionCenters={};
-  const regionWidths={};
-  const regionOrder=["Florence","Siena","Pisa","Rome","Bologna","Rimini","Veneto","Naples","Unclassified Italy"];
-
-  for(const region of regionOrder){
-    const count=(byRegion[region]||[]).length;
-    if(!count) continue;
-    const width=Math.max(300,185+count*36);
-    regionWidths[region]=width;
-    regionCenters[region]=cursor+width/2;
-    cursor += width+58;
-  }
-  const worldWidth=Math.max(1800,cursor+220);
-  canvas.setAttribute("viewBox",`0 0 ${worldWidth} 1250`);
-
-  layoutRegionBounds={};
-  for(const region of regionOrder){
-    if(!regionCenters[region] || !regionWidths[region]) continue;
-    layoutRegionBounds[region]={
-      left:regionCenters[region]-regionWidths[region]/2,
-      right:regionCenters[region]+regionWidths[region]/2,
-      center:regionCenters[region]
-    };
+  // Build a provisional degree map from imported + curated relationships.
+  const degreeByUlan=new Map();
+  for(const r of importedDatabase.relationships||[]){
+    if(r.from_ulan) degreeByUlan.set(r.from_ulan,(degreeByUlan.get(r.from_ulan)||0)+1);
+    if(r.to_ulan) degreeByUlan.set(r.to_ulan,(degreeByUlan.get(r.to_ulan)||0)+1);
   }
 
   const majorNames=new Set([
     "giotto","giotto di bondone","duccio","duccio di buoninsegna",
     "pietro cavallini","paolo veneziano","vitale da bologna","giovanni da rimini",
-    "simone martini","pietro lorenzetti","ambrogio lorenzetti","orcagna","andrea di cione"
+    "simone martini","pietro lorenzetti","ambrogio lorenzetti",
+    "orcagna","andrea di cione","taddeo gaddi","agnolo gaddi"
   ]);
 
-  const generated=[];
+  function isMajor(rec){
+    return majorNames.has(String(rec.canonical_name||rec.seed_name||"").toLowerCase());
+  }
 
-  for(const region of regionOrder){
-    const recs=[...(byRegion[region]||[])];
-    if(!recs.length) continue;
-    const center=regionCenters[region];
-    const width=regionWidths[region];
-
-    // Put the named anchor near the top/center of its territory.
-    const anchorName=(anchorSpecs[region]?.name||"").toLowerCase();
-    const anchorRec=recs.find(r=>
-      String(r.canonical_name||r.seed_name).toLowerCase().includes(anchorName)
-    );
-
-    const others=recs.filter(r=>r!==anchorRec).sort((a,b)=>
-      (a.layout?.year||1350)-(b.layout?.year||1350)
-    );
-
-    if(anchorRec){
-      generated.push({
-        rec:anchorRec,
-        x:center,
-        y:yForYear(anchorRec.layout?.year||1300),
-        major:true
-      });
+  function regionWidth(region,recs){
+    // Width based on actual density within overlapping 20-year time bands,
+    // not raw artist count.
+    const buckets={};
+    for(const rec of recs){
+      const yr=trustedYearFor(rec,null);
+      const b=Number.isFinite(yr)?Math.round(yr/20)*20:1350;
+      const fp=footprintFor(rec,isMajor(rec),degreeByUlan.get(rec.ulan?.id)||0);
+      if(!buckets[b]) buckets[b]=[];
+      buckets[b].push(fp);
     }
 
-    // Fan artists around the anchor/region center while keeping chronology vertical.
-    const lanes=[0,-1,1,-2,2,-3,3,-4,4];
-    const laneStep=Math.max(90,Math.min(145,width/7));
+    let needed=280;
+    for(const fps of Object.values(buckets)){
+      const rowWidth=fps.reduce((s,fp)=>s+fp.halfWidth*2+22,0);
+      needed=Math.max(needed,rowWidth);
+    }
+
+    // Florence/Siena get a little more natural room as central traditions.
+    const base=(region==="Florence"||region==="Siena")?360:280;
+    return Math.max(base,Math.min(1400,needed+60));
+  }
+
+  const regionWidths={};
+  for(const [region,recs] of Object.entries(byRegion)){
+    regionWidths[region]=regionWidth(region,recs);
+  }
+
+  // Center Florence/Siena around the visual origin.
+  const centerGap=70;
+  const florW=regionWidths["Florence"]||420;
+  const sienW=regionWidths["Siena"]||380;
+  const centralTotal=florW+centerGap+sienW;
+  const centerStart=0;
+
+  const regionBounds={};
+  regionBounds["Florence"]={left:centerStart,right:centerStart+florW};
+  regionBounds["Siena"]={
+    left:centerStart+florW+centerGap,
+    right:centerStart+florW+centerGap+sienW
+  };
+
+  // Pack left side outward from Florence.
+  let leftCursor=regionBounds["Florence"].left-70;
+  for(const region of [...leftRegions].reverse()){
+    const w=regionWidths[region];
+    if(!w) continue;
+    regionBounds[region]={left:leftCursor-w,right:leftCursor};
+    leftCursor-=w+70;
+  }
+
+  // Pack right side outward from Siena.
+  let rightCursor=regionBounds["Siena"].right+70;
+  for(const region of rightRegions){
+    const w=regionWidths[region];
+    if(!w) continue;
+    regionBounds[region]={left:rightCursor,right:rightCursor+w};
+    rightCursor+=w+70;
+  }
+
+  // Any unexpected region is tucked beside its nearest known Italian field,
+  // not exiled to a separate unclassified continent.
+  for(const region of Object.keys(byRegion)){
+    if(regionBounds[region]) continue;
+    const w=regionWidths[region]||300;
+    regionBounds[region]={left:rightCursor,right:rightCursor+w};
+    rightCursor+=w+60;
+  }
+
+  // Shift everything positive for SVG coordinates.
+  const minX=Math.min(...Object.values(regionBounds).map(b=>b.left));
+  const shiftX=160-minX;
+  for(const b of Object.values(regionBounds)){
+    b.left+=shiftX; b.right+=shiftX;
+    b.center=(b.left+b.right)/2;
+  }
+
+  const worldWidth=Math.max(1700,
+    Math.max(...Object.values(regionBounds).map(b=>b.right))+180
+  );
+  canvas.setAttribute("viewBox",`0 0 ${worldWidth} 1250`);
+
+  // Place nodes within each region. Chronology controls Y;
+  // collision avoidance uses label-aware rectangular footprints.
+  const generated=[];
+  const placedByRegion={};
+
+  for(const [region,recs] of Object.entries(byRegion)){
+    const bounds=regionBounds[region];
+    if(!bounds) continue;
+
+    const anchorName=String(anchorSpecs[region]?.name||"").toLowerCase();
+    const sorted=[...recs].sort((a,b)=>{
+      const aa=anchorName && String(a.canonical_name||a.seed_name).toLowerCase().includes(anchorName) ? -1 : 0;
+      const bb=anchorName && String(b.canonical_name||b.seed_name).toLowerCase().includes(anchorName) ? -1 : 0;
+      if(aa!==bb) return aa-bb;
+      return (trustedYearFor(a,null)??9999)-(trustedYearFor(b,null)??9999);
+    });
+
     const placed=[];
+    placedByRegion[region]=placed;
 
-    for(let i=0;i<others.length;i++){
-      const rec=others[i];
-      const major=majorNames.has(String(rec.canonical_name||rec.seed_name).toLowerCase());
-      const baseY=yForYear(rec.layout?.year||1350);
-      let lane=lanes[i%lanes.length];
-      let ring=Math.floor(i/lanes.length);
-      let x=center + lane*laneStep + (ring%2?laneStep*.35:-laneStep*.35);
-      let y=baseY + ((i%5)-2)*22;
+    for(const rec of sorted){
+      const yr=trustedYearFor(rec,null);
+      if(!Number.isFinite(yr)) continue;
 
-      // Basic collision avoidance within region.
-      for(let tries=0;tries<24;tries++){
-        const minDist=major?125:82;
-        const clash=placed.some(p=>Math.hypot(x-p.x,y-p.y)<Math.max(minDist,p.minDist));
-        if(!clash) break;
-        x += (tries%2===0?1:-1)*(laneStep*.45 + tries*4);
-        y += ((tries%3)-1)*18;
+      const major=isMajor(rec);
+      const deg=degreeByUlan.get(rec.ulan?.id)||0;
+      const fp=footprintFor(rec,major,deg);
+      const baseY=yForYear(yr);
+
+      const isAnchor=anchorName &&
+        String(rec.canonical_name||rec.seed_name).toLowerCase().includes(anchorName);
+
+      const desiredX=isAnchor ? bounds.center : bounds.center;
+      const step=86;
+      const offsets=[0,-1,1,-2,2,-3,3,-4,4,-5,5,-6,6];
+
+      let best=null;
+
+      for(let verticalRing=0; verticalRing<5 && !best; verticalRing++){
+        const yOffsets=verticalRing===0 ? [0] :
+          [-verticalRing*30,verticalRing*30];
+
+        for(const yOff of yOffsets){
+          for(const lane of offsets){
+            const x=desiredX+lane*step;
+            const y=baseY+yOff;
+
+            if(x-fp.halfWidth<bounds.left+12 || x+fp.halfWidth>bounds.right-12) continue;
+
+            const collides=placed.some(p=>{
+              const xOverlap=Math.abs(x-p.x) < (fp.halfWidth+p.fp.halfWidth+18);
+              const yOverlap=Math.abs(y-p.y) < (fp.halfHeight+p.fp.halfHeight+14);
+              return xOverlap && yOverlap;
+            });
+
+            if(!collides){
+              best={x,y,fp};
+              break;
+            }
+          }
+          if(best) break;
+        }
       }
-      placed.push({x,y,minDist:major?125:82});
-      generated.push({rec,x,y,major});
+
+      if(!best){
+        // Region width should normally prevent this. If not, place at nearest
+        // clear horizontal slot while remaining inside the region.
+        for(let x=bounds.left+fp.halfWidth+16; x<=bounds.right-fp.halfWidth-16; x+=74){
+          const y=baseY;
+          const collides=placed.some(p=>{
+            const xOverlap=Math.abs(x-p.x) < (fp.halfWidth+p.fp.halfWidth+18);
+            const yOverlap=Math.abs(y-p.y) < (fp.halfHeight+p.fp.halfHeight+14);
+            return xOverlap && yOverlap;
+          });
+          if(!collides){best={x,y,fp};break;}
+        }
+      }
+
+      if(!best){
+        // Hard non-overlap takes precedence: move slightly in Y rather than overlap.
+        let y=baseY;
+        let tries=0;
+        while(tries<30){
+          y += (tries%2===0?1:-1)*(34+Math.floor(tries/2)*10);
+          const x=bounds.center;
+          const collides=placed.some(p=>{
+            const xOverlap=Math.abs(x-p.x) < (fp.halfWidth+p.fp.halfWidth+18);
+            const yOverlap=Math.abs(y-p.y) < (fp.halfHeight+p.fp.halfHeight+14);
+            return xOverlap && yOverlap;
+          });
+          if(!collides){best={x,y,fp};break;}
+          tries++;
+        }
+      }
+
+      if(!best) continue;
+      placed.push(best);
+      generated.push({rec,x:best.x,y:best.y,major});
     }
   }
 
+  // Materialize/update artist nodes without overwriting trusted chronology.
   for(const g of generated){
     const rec=g.rec;
     const seed=String(rec.seed_name||"").toLowerCase();
@@ -540,21 +684,24 @@ function materializeImportedGraph(){
 
     if(a){
       a.ulan_id=rec.ulan?.id||null;
-      const resolvedYear=trustedYearFor(rec,a); if(Number.isFinite(resolvedYear)) a.year=resolvedYear;
-      a.x=g.x;a.y=g.y;
+      const yr=trustedYearFor(rec,a);
+      if(Number.isFinite(yr)) a.year=yr;
+      a.x=g.x; a.y=g.y;
       a.school=regionForRecord(rec);
       a.imported=true;
-      a.importance=g.major?1.35:Math.max(.82,a.importance||.82);
+      a.importance=g.major?Math.max(1.28,a.importance||1):Math.max(.82,a.importance||.82);
     }else{
+      const yr=trustedYearFor(rec,null);
+      if(!Number.isFinite(yr)) continue;
       artists.push({
         id:`ulan-${rec.ulan?.id||rec.seed_name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`,
         ulan_id:rec.ulan?.id||null,
         name:rec.canonical_name||rec.seed_name,
         full:rec.canonical_name||rec.seed_name,
         school:regionForRecord(rec),
-        year:trustedYearFor(rec,null),
+        year:yr,
         x:g.x,y:g.y,
-        importance:g.major?1.22:.80,
+        importance:g.major?1.24:.80,
         wiki:"",
         activity:[],
         imported:true
@@ -562,6 +709,7 @@ function materializeImportedGraph(){
     }
   }
 
+  // Import relationship metadata unchanged.
   const strength={solid:3,dashed:2,dotted:1};
   for(const r of importedDatabase.relationships||[]){
     const a=artists.find(x=>x.ulan_id===r.from_ulan);
@@ -571,8 +719,7 @@ function materializeImportedGraph(){
     const key=[a.id,b.id].sort().join("|");
     relationshipMeta.set(key,{
       directed:Boolean(r.directed),
-      from:a.id,
-      to:b.id,
+      from:a.id,to:b.id,
       style:r.style||"dotted",
       meaning:r.meaning||"general influence",
       evidence:r.evidence||[]
@@ -583,10 +730,8 @@ function materializeImportedGraph(){
     );
     if(existing){
       if((strength[r.style]||0)>(strength[existing[2]]||0)){
-        existing[0]=a.id;
-        existing[1]=b.id;
-        existing[2]=r.style;
-        existing[3]=r.meaning||existing[3];
+        existing[0]=a.id; existing[1]=b.id;
+        existing[2]=r.style; existing[3]=r.meaning||existing[3];
       }
     }else{
       relationships.push([a.id,b.id,r.style||"dotted",r.meaning||"general influence"]);
@@ -595,8 +740,28 @@ function materializeImportedGraph(){
 
   addManualFamilyFallbacks();
   normalizeCuratedRelationshipDirections();
-  optimizeConnectionLayout();
   scaleNodesByConnectivity();
+
+  // Gentle local relaxation only inside a region, and never enough to break
+  // the label-aware spacing established above.
+  for(const region of Object.keys(placedByRegion)){
+    const members=artists.filter(a=>a.school===region);
+    for(const a of members){
+      const localNeighbors=[];
+      for(const r of relationships){
+        const otherId=r[0]===a.id?r[1]:r[1]===a.id?r[0]:null;
+        if(!otherId) continue;
+        const n=artists.find(x=>x.id===otherId);
+        if(n && n.school===region) localNeighbors.push(n);
+      }
+      if(!localNeighbors.length) continue;
+
+      const target=localNeighbors.reduce((s,n)=>s+n.x,0)/localNeighbors.length;
+      const bounds=regionBounds[region];
+      const proposed=a.x+(target-a.x)*0.08;
+      a.x=Math.max(bounds.left+42,Math.min(bounds.right-42,proposed));
+    }
+  }
 }
 
 function addManualFamilyFallbacks(){
@@ -990,7 +1155,7 @@ canvas.addEventListener('mousedown',e=>{
 });
 window.addEventListener('mousemove',e=>{
   if(!state.dragging)return;
-  const PAN_SPEED=2.35;
+  const PAN_SPEED=2.45;
   state.tx=state.stx+(e.clientX-state.sx)*PAN_SPEED;
   state.ty=state.sty+(e.clientY-state.sy)*PAN_SPEED;
   render();
@@ -1136,9 +1301,10 @@ loadImportedDatabase().then(()=>{
   requestAnimationFrame(()=>{
     const giotto=artists.find(a=>a.full.toLowerCase().includes("giotto"));
     if(giotto){
-      state.scale=1.0;
+      state.scale=1.08;
       state.selected=null;
       drawer.classList.remove("open");
+      document.getElementById("overflowDrawer")?.classList.remove("open");
       focusOn(giotto.x,giotto.y);
       render();
     }else{

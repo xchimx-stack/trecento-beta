@@ -1,39 +1,37 @@
-# Trecento Network v0.7.4 — Getty Full Record diagnostic
+# Trecento Network v0.7.5 — Tuscany-centered compact layout
 
-This build stops guessing at unavailable JSON URLs.
+Importer is unchanged from v0.7.4.
 
-## Relationship source
+## Geographic grammar
 
-Artist identity still uses Getty's reconciliation service.
+Tuscany is fixed at the visual center:
 
-For relationships, the crawler now reads Getty's current `ULANFullDisplay` record, specifically the
-`Related People or Corporate Bodies` section. This is the same current Getty page that visibly lists
-Giotto's teacher/student relationships.
+Naples / Rome / Pisa <- Florence / Siena -> Bologna / Rimini / Veneto
 
-## Giotto diagnostic
+The ordering is approximate visual geography, not a literal map.
 
-`crawl-status.json` now contains `giotto_relationship_diagnostic`.
+## Dense-region behavior
 
-A successful run should parse relationships including:
-- student of Cimabue
-- teacher of Puccio Capanna
-- teacher of Bernardo Daddi
-- teacher of Taddeo Gaddi
-- teacher of Maso di Banco
-- teacher of Roberto d'Oderisi
-- teacher of Stefano Fiorentino
+Region width is driven by the maximum density of artists active in overlapping 20-year bands.
 
-If that diagnostic is correct, controlled expansion can trust the same parser.
+Florence therefore expands more than Bologna or Rimini when it has more contemporaneous nodes.
 
-## Reduced API traffic
+## Label-aware collision
 
-The invalid `.json` / `.jsonld` probes that caused most of the HTTP errors in v0.7.3 are removed.
-Each artist now needs the reconciliation stage plus one full-record fetch.
+Spacing now estimates both:
+- node-circle footprint
+- rendered artist-name width
 
-## Arrow fix
+This prevents the prior situation where circles technically did not overlap but labels did.
 
-The renderer now has two layers of direction handling:
-1. normalized relationship metadata where available
-2. a direct fallback: every curated solid workshop edge is treated as master -> pupil
+## Compactness
 
-Therefore Bicci di Lorenzo -> Neri di Bicci should display an arrow even if imported metadata fails.
+Regions are packed outward from Tuscany with a 70px base gutter.
+Large empty gaps are no longer created from a raw artist-count multiplier.
+
+Hard non-overlap still takes precedence over compactness.
+
+## Startup
+
+The default view centers on Giotto at a readable zoom.
+Overview remains available for the full graph.
