@@ -106,6 +106,7 @@
   <div id="toolbar">
     <input id="search" type="text" placeholder="Jump to an artist…" autocomplete="off">
     <button class="btn" id="homeBtn">Overview</button>
+    <span id="dataStatus" style="font-size:12px;color:#777;background:#fff;border:1px solid #ddd;border-radius:999px;padding:7px 9px">Loading artist database…</span>
   </div>
   <div id="suggestions"></div>
   <div id="legend">
@@ -151,6 +152,11 @@
         <div id="dConnections"></div>
       </div>
 
+      <div class="section" id="databaseSection">
+        <h3>Database record</h3>
+        <div id="dDatabase" class="row" style="border-top:0;color:#777">Loading…</div>
+      </div>
+
       <div class="section">
         <h3>Method</h3>
         <div class="row" style="border-top:0;color:#777">
@@ -189,24 +195,23 @@ const artists = [
     {place:'Avignon',label:'1330s–1344',x:1180,y:415,rx:125,ry:70}
   ]},
   {id:'bernardo',name:'Bernardo Daddi',full:'Bernardo Daddi',school:'Florence',year:1335,x:410,y:405,importance:1.0,wiki:'https://en.wikipedia.org/wiki/Bernardo_Daddi',activity:[]},
-  {id:'artist-1',name:'Artist 1',full:'Artist 1',school:'Florence',year:1314,x:250,y:245,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-2',name:'Artist 2',full:'Artist 2',school:'Florence',year:1316,x:330,y:275,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-3',name:'Artist 3',full:'Artist 3',school:'Florence',year:1318,x:440,y:300,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-4',name:'Artist 4',full:'Artist 4',school:'Florence',year:1320,x:560,y:325,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-5',name:'Artist 5',full:'Artist 5',school:'Florence',year:1322,x:675,y:350,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-6',name:'Artist 6',full:'Artist 6',school:'Florence',year:1324,x:280,y:380,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-7',name:'Artist 7',full:'Artist 7',school:'Florence',year:1326,x:390,y:410,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-8',name:'Artist 8',full:'Artist 8',school:'Florence',year:1328,x:520,y:435,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-9',name:'Artist 9',full:'Artist 9',school:'Florence',year:1330,x:660,y:465,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-10',name:'Artist 10',full:'Artist 10',school:'Florence',year:1332,x:235,y:505,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-11',name:'Artist 11',full:'Artist 11',school:'Florence',year:1334,x:355,y:535,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-12',name:'Artist 12',full:'Artist 12',school:'Florence',year:1336,x:485,y:560,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-13',name:'Artist 13',full:'Artist 13',school:'Florence',year:1338,x:620,y:585,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-14',name:'Artist 14',full:'Artist 14',school:'Florence',year:1340,x:300,y:620,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-15',name:'Artist 15',full:'Artist 15',school:'Florence',year:1342,x:430,y:650,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-16',name:'Artist 16',full:'Artist 16',school:'Florence',year:1344,x:560,y:675,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-17',name:'Artist 17',full:'Artist 17',school:'Florence',year:1346,x:690,y:700,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
-  {id:'artist-18',name:'Artist 18',full:'Artist 18',school:'Florence',year:1348,x:365,y:735,importance:.72,wiki:'',activity:[],minor:true,revealWith:['giotto']},
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   {id:'maestro-daddesco',name:'Maestro Daddesco',full:'Maestro Daddesco',school:'Florence',year:1340,x:275,y:500,importance:.82,wiki:'',activity:[],minor:true,revealWith:['bernardo']},
   {id:'orcagna',name:'Orcagna',full:'Andrea di Cione (Orcagna)',school:'Florence',year:1355,x:640,y:520,importance:1.15,wiki:'https://en.wikipedia.org/wiki/Orcagna',activity:[]},
   {id:'pietro',name:'Pietro Lorenzetti',full:'Pietro Lorenzetti',school:'Siena',year:1328,x:860,y:350,importance:1.05,wiki:'https://en.wikipedia.org/wiki/Pietro_Lorenzetti',activity:[
@@ -231,27 +236,29 @@ const artists = [
   {id:'jacopo-di-cione',name:'Jacopo di Cione',full:'Jacopo di Cione',school:'Florence',year:1370,x:770,y:625,importance:1.0,wiki:'https://en.wikipedia.org/wiki/Jacopo_di_Cione',activity:[]}
 ]
 
+let importedDatabase={artists:[]};
+let importedByName=new Map();
+
 const relationships = [
   ['giotto','taddeo','solid','pupil / workshop'],
   ['giotto','bernardo','solid','pupil / workshop'],
-  ['giotto','artist-1','solid','pupil / workshop'],
-  ['giotto','artist-2','solid','pupil / workshop'],
-  ['giotto','artist-3','solid','pupil / workshop'],
-  ['giotto','artist-4','solid','pupil / workshop'],
-  ['giotto','artist-5','solid','pupil / workshop'],
-  ['giotto','artist-6','solid','pupil / workshop'],
-  ['giotto','artist-7','dashed','collaborator / direct influence'],
-  ['giotto','artist-8','dashed','collaborator / direct influence'],
-  ['giotto','artist-9','dashed','collaborator / direct influence'],
-  ['giotto','artist-10','dashed','collaborator / direct influence'],
-  ['giotto','artist-11','dashed','collaborator / direct influence'],
-  ['giotto','artist-12','dashed','collaborator / direct influence'],
-  ['giotto','artist-13','dotted','general influence'],
-  ['giotto','artist-14','dotted','general influence'],
-  ['giotto','artist-15','dotted','general influence'],
-  ['giotto','artist-16','dotted','general influence'],
-  ['giotto','artist-17','dotted','general influence'],
-  ['giotto','artist-18','dotted','general influence'],
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   ['bernardo','maestro-daddesco','dashed','direct influence'],
   ['giotto','orcagna','dashed','direct influence'],
   ['taddeo','agnolo','solid','pupil / workshop'],
@@ -395,7 +402,29 @@ function populateDrawer(a){
     const other=artists.find(x=>x.id===(r[0]===a.id?r[1]:r[0]));
     return `<div class="row"><b>${other.name}</b><br><span class="meta">${r[3]}</span></div>`;
   }).join('');
-  document.getElementById('dConnections').innerHTML=conns||`<div class="row" style="color:#777">No relationship records in this mockup.</div>`;
+  document.getElementById('dConnections').innerHTML=conns||`<div class="row" style="color:#777">No relationship records in this prototype.</div>`;
+
+  const rec = importedByName.get(a.full.toLowerCase()) || importedByName.get(a.name.toLowerCase());
+  const db = document.getElementById('dDatabase');
+  if(rec){
+    const wd=rec.wikidata||{};
+    const dates = wd.birth_year || wd.death_year
+      ? `${wd.birth_year ?? "?"}–${wd.death_year ?? "?"}`
+      : (wd.floruit_start || wd.floruit_end ? `active ${wd.floruit_start ?? "?"}–${wd.floruit_end ?? "?"}` : "dates not resolved");
+    db.innerHTML = `<b>${rec.canonical_name || rec.seed_name}</b><br>${dates}<br>${rec.description || ""}<br><span style="font-size:11px">Wikidata ${wd.qid || "—"} · ULAN ${rec.ulan?.candidates?.[0]?.id || "—"}</span>`;
+
+    if(rec.wikipedia?.preferred?.url){
+      document.getElementById('wikiLink').href=rec.wikipedia.preferred.url;
+      document.getElementById('wikiLink').textContent=`Wikipedia (${rec.wikipedia.preferred.language==="en"?"English":"Italian"}) ↗`;
+    }
+    const thumbs=document.querySelector('.thumbs');
+    const images=(rec.commons?.images||[]).slice(0,4);
+    if(images.length){
+      thumbs.innerHTML=images.map(im=>`<a class="thumb" href="${im.description_url || "#"}" target="_blank" rel="noreferrer" style="padding:0"><img src="${im.thumb_url}" alt="${(im.title||a.full).replaceAll('"','&quot;')}" style="width:100%;height:100%;object-fit:cover"></a>`).join('');
+    }
+  } else {
+    db.textContent='No enriched database match in this build.';
+  }
 }
 
 function focusOn(x,y,scaleIgnored){
@@ -475,25 +504,93 @@ document.getElementById('closeOverflow').addEventListener('click',()=>{
   document.getElementById('overflowDrawer').classList.remove('open');
 });
 
+
+function bestDisplayYear(rec){
+  const w=rec.wikidata||{};
+  if(w.floruit_start && w.floruit_end) return Math.round((w.floruit_start+w.floruit_end)/2);
+  if(w.birth_year && w.death_year) return Math.round((w.birth_year+w.death_year)/2);
+  if(w.death_year) return w.death_year-20;
+  if(w.birth_year) return w.birth_year+35;
+  return 1350;
+}
+
+function ensureImportedArtist(rec){
+  const existing=artists.find(a =>
+    a.full.toLowerCase()===(rec.canonical_name||rec.seed_name).toLowerCase() ||
+    a.full.toLowerCase()===rec.seed_name.toLowerCase()
+  );
+  if(existing) return existing;
+
+  const yr=bestDisplayYear(rec);
+  const sameYear=artists.filter(a=>Math.abs((a.year||1350)-yr)<12).length;
+  const id='imported-'+(rec.wikidata?.qid || rec.seed_name.toLowerCase().replace(/[^a-z0-9]+/g,'-'));
+  const x=850 + ((sameYear%5)-2)*115;
+  const y=85 + ((yr-1280)/(1480-1280))*1050;
+  const a={
+    id,
+    name:rec.canonical_name||rec.seed_name,
+    full:rec.canonical_name||rec.seed_name,
+    school:'Imported / unclassified',
+    year:yr,x,y,importance:.82,
+    wiki:rec.wikipedia?.preferred?.url || '',
+    activity:[],
+    minor:true,
+    revealWith:[]
+  };
+  artists.push(a);
+  return a;
+}
+
+async function loadImportedDatabase(){
+  try{
+    const r=await fetch('/imported-artists.json',{cache:'no-store'});
+    importedDatabase=await r.json();
+    importedByName=new Map();
+    (importedDatabase.artists||[]).forEach(rec=>{
+      importedByName.set(String(rec.seed_name||'').toLowerCase(),rec);
+      importedByName.set(String(rec.canonical_name||'').toLowerCase(),rec);
+    });
+    document.getElementById('dataStatus').textContent=`${importedDatabase.count || importedDatabase.artists?.length || 0} artist records loaded`;
+  }catch(e){
+    document.getElementById('dataStatus').textContent='Artist database unavailable';
+  }
+}
+
 search.addEventListener('input',()=>{
   const q=search.value.trim().toLowerCase();
   if(!q){suggestions.style.display='none';return}
-  const hits=artists.filter(a=>a.full.toLowerCase().includes(q)||a.name.toLowerCase().includes(q)).slice(0,7);
-  suggestions.innerHTML=hits.map(a=>`<button data-id="${a.id}">${a.full}</button>`).join('');
+  const localHits=artists.filter(a=>a.full.toLowerCase().includes(q)||a.name.toLowerCase().includes(q));
+  const importedHits=(importedDatabase.artists||[])
+    .filter(r=>String(r.canonical_name||r.seed_name).toLowerCase().includes(q))
+    .map(r=>({imported:true,rec:r,label:r.canonical_name||r.seed_name}));
+  const seen=new Set();
+  const hits=[...localHits.map(a=>({id:a.id,label:a.full})),...importedHits]
+    .filter(h=>{const k=h.label.toLowerCase();if(seen.has(k))return false;seen.add(k);return true;})
+    .slice(0,9);
+  suggestions.innerHTML=hits.map((h,i)=>`<button data-i="${i}">${h.label}${h.imported?' <span style="color:#999">· database</span>':''}</button>`).join('');
   suggestions.style.display=hits.length?'block':'none';
   suggestions.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
-    const id=b.dataset.id;search.value=artists.find(a=>a.id===id).full;
-    suggestions.style.display='none';selectArtist(id,true);
+    const h=hits[Number(b.dataset.i)];
+    let a;
+    if(h.imported) a=ensureImportedArtist(h.rec); else a=artists.find(x=>x.id===h.id);
+    search.value=a.full;
+    suggestions.style.display='none';
+    selectArtist(a.id,true);
   }));
 });
 search.addEventListener('keydown',e=>{
   if(e.key==='Enter'){
     const q=search.value.trim().toLowerCase();
-    const hit=artists.find(a=>a.full.toLowerCase()===q)||artists.find(a=>a.full.toLowerCase().includes(q));
+    let hit=artists.find(a=>a.full.toLowerCase()===q)||artists.find(a=>a.full.toLowerCase().includes(q));
+    if(!hit){
+      const rec=(importedDatabase.artists||[]).find(r=>String(r.canonical_name||r.seed_name).toLowerCase().includes(q));
+      if(rec) hit=ensureImportedArtist(rec);
+    }
     if(hit){suggestions.style.display='none';selectArtist(hit.id,true)}
   }
 });
 
+loadImportedDatabase();
 overview();
 </script>
 </body>

@@ -45,6 +45,19 @@ async function wikiInfo(lang,title) {
 function claim(entity,p){
   return entity?.claims?.[p]?.[0]?.mainsnak?.datavalue?.value ?? null;
 }
+function timeYear(entity,p){
+  const v=claim(entity,p);
+  const t=v?.time;
+  if(!t) return null;
+  const m=String(t).match(/^([+-]?\d{1,6})-/);
+  if(!m) return null;
+  const y=Number(m[1]);
+  return Number.isFinite(y) ? y : null;
+}
+function entityId(entity,p){
+  const v=claim(entity,p);
+  return v?.id || null;
+}
 async function commonsImages(category,limit=6){
   if(!category) return [];
   const u=new URL(COMMONS); u.search=new URLSearchParams({
@@ -95,9 +108,23 @@ async function main(){
                     it ? {...it,language:"it"} :
                     en ? {...en,language:"en"} : null;
     const commons=claim(entity,"P373");
+    const birth_year=timeYear(entity,"P569");
+    const death_year=timeYear(entity,"P570");
+    const inception_year=timeYear(entity,"P571");
+    const floruit_start=timeYear(entity,"P1317");
+    const floruit_end=timeYear(entity,"P1318");
+    const label=entity?.labels?.en?.value || entity?.labels?.it?.value || name;
+    const description=entity?.descriptions?.en?.value || entity?.descriptions?.it?.value || null;
+
     out.push({
       seed_name:name,
-      wikidata:{qid,candidates:candidates.slice(0,3).map(x=>({id:x.id,label:x.label,description:x.description}))},
+      canonical_name:label,
+      description,
+      wikidata:{
+        qid,
+        candidates:candidates.slice(0,3).map(x=>({id:x.id,label:x.label,description:x.description})),
+        birth_year, death_year, inception_year, floruit_start, floruit_end
+      },
       wikipedia:{en,it,preferred},
       commons:{category:commons,images:await commonsImages(commons,6)},
       ulan:{candidates:await ulanSearch(name)},

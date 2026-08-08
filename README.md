@@ -1,34 +1,36 @@
-# Trecento Network integrated scale-test
+# Trecento Network v0.4 — self-populating scale test
 
-This is the single replacement project for the current prototype.
+This version keeps the approved interactive graph behavior and adds a deployment-time enrichment pipeline.
 
-## Current deployed UI behavior
-- white, frameless pan/zoom canvas
-- vertical chronology
-- organic regional/workshop clustering
-- left artist drawer
-- selected artist in light red
-- activity washes positioned by regional/time field
-- selection preserves the user's zoom
-- progressive disclosure of minor artists
-- up to 9 minor connections plus an ADDITIONAL node and right overflow drawer
+## What happens on Vercel build
 
-The UI still contains temporary Artist 1–18 nodes under Giotto specifically to test overflow.
-Remove these before publication.
+`npm run build` attempts to resolve the 62 curated seed names against:
+- Wikidata
+- English + Italian Wikipedia
+- Wikipedia's own English stub categories
+- Wikimedia Commons
+- Getty ULAN
 
-## Data pipeline
-`data/seed-artists.json` contains 62 manually selected discovery seeds.
-`scripts/import-scale-test.mjs` enriches them from Wikidata/Wikipedia/Commons/Getty ULAN.
-`data/visibility-rules.json` contains the current prominence/reveal policy.
+It writes `public/imported-artists.json`. If an external service is temporarily unavailable, the site
+still deploys with the seed list rather than failing completely.
 
-The importer is intentionally NOT run during Vercel build yet. Its output still needs to be
-connected to the visualization and relationship/activity extraction needs provenance review.
-This prevents a deployment from silently publishing unreviewed identity matches.
+## What the browser does
+
+- Loads `imported-artists.json`
+- Adds all imported identities to artist search
+- A searched imported artist can be materialized on the graph even if it is not a default-visible node
+- Uses routed Wikipedia link in the drawer
+- Uses real Commons thumbnails when available
+- Shows Wikidata/ULAN identity metadata and resolved dates when available
+
+## Important scope boundary
+
+This version does NOT automatically assert workshop/influence/activity edges from prose.
+Those need the next provenance-aware extraction layer.
+
+The existing core network remains a curated/prototype topology so that unreviewed identity matches cannot silently
+become historical claims.
 
 ## Deploy
-Upload the CONTENTS of this folder to the root of the GitHub repository, replacing the old prototype.
-Vercel will serve `public/index.html`.
 
-## Next development milestone
-Run the importer, review identity matches, add sourced activity/relationship extraction, then replace
-the temporary hard-coded visualization dataset with generated data.
+Replace the repository contents with this package, commit to `main`, and Vercel should redeploy automatically.
