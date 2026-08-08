@@ -161,7 +161,7 @@
       <div class="section">
         <h3>Method</h3>
         <div class="row" style="border-top:0;color:#777">
-          Activity washes show where an artist was active relative to the network. They do not assert influence unless an explicit edge does so.
+          ULAN-derived nodes use chronology and regional descriptors for layout. Activity washes remain separately curated; only explicit ULAN relationships create imported edges.
         </div>
       </div>
     </div>
@@ -243,8 +243,71 @@ const artists = [
   {id:'jacopo-di-cione',name:'Jacopo di Cione',full:'Jacopo di Cione',school:'Florence',year:1370,x:770,y:625,importance:1.0,wiki:'https://en.wikipedia.org/wiki/Jacopo_di_Cione',activity:[]}
 ]
 
-let importedDatabase={artists:[]};
+let importedDatabase={artists:[],relationships:[]};
 let importedByName=new Map();
+let importedGraphLoaded=false;
+
+const regionX={
+  "Florence":470,
+  "Siena":860,
+  "Veneto":1240,
+  "Bologna":1080,
+  "Rimini":1110,
+  "Rome":690,
+  "Naples":790,
+  "Unclassified Italy":980
+};
+
+function yForYear(year){
+  const min=1250,max=1480,top=55,bottom=1190;
+  const y=Math.max(min,Math.min(max,Number(year)||1350));
+  return top+((y-min)/(max-min))*(bottom-top);
+}
+
+function materializeImportedGraph(){
+  if(importedGraphLoaded) return;
+  importedGraphLoaded=true;
+
+  const usedByRegion={};
+  for(const rec of importedDatabase.artists||[]){
+    const already=artists.find(a=>a.full.toLowerCase()===String(rec.seed_name).toLowerCase());
+    if(already){
+      already.ulan_id=rec.ulan?.id||null;
+      already.year=rec.layout?.year||already.year;
+      continue;
+    }
+    const region=rec.layout?.region||"Unclassified Italy";
+    const idx=usedByRegion[region]||0;
+    usedByRegion[region]=idx+1;
+    const x0=regionX[region]||regionX["Unclassified Italy"];
+    const jitter=[0,-90,90,-45,45,-135,135][idx%7];
+    const year=rec.layout?.year||1350;
+    artists.push({
+      id:`ulan-${rec.ulan?.id||rec.seed_name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`,
+      ulan_id:rec.ulan?.id||null,
+      name:rec.canonical_name||rec.seed_name,
+      full:rec.canonical_name||rec.seed_name,
+      school:region,
+      year,
+      x:x0+jitter,
+      y:yForYear(year)+(Math.floor(idx/7)%3-1)*18,
+      importance:.78,
+      wiki:"",
+      activity:[],
+      imported:true
+    });
+  }
+
+  for(const r of importedDatabase.relationships||[]){
+    const a=artists.find(x=>x.ulan_id===r.from_ulan);
+    const b=artists.find(x=>x.ulan_id===r.to_ulan);
+    if(!a||!b) continue;
+    const exists=relationships.some(x=>
+      (x[0]===a.id&&x[1]===b.id)||(x[0]===b.id&&x[1]===a.id)
+    );
+    if(!exists) relationships.push([a.id,b.id,r.style||"dashed",r.meaning||"ULAN relationship"]);
+  }
+}
 
 const relationships = [
   ['giotto','taddeo','solid','pupil / workshop'],
@@ -414,7 +477,7 @@ function populateDrawer(a){
   const rec = importedByName.get(a.full.toLowerCase()) || importedByName.get(a.name.toLowerCase());
   const db = document.getElementById('dDatabase');
   if(rec){
-    db.innerHTML = `<b>${rec.canonical_name || rec.seed_name}</b><br><span style="font-size:11px">ULAN ${rec.ulan?.id || "—"} · ${rec.review_status || ""}</span>`;
+    db.innerHTML = `<b>${rec.canonical_name || rec.seed_name}</b><br>${rec.ulan?.summary || ""}<br><span style="font-size:11px">ULAN ${rec.ulan?.id || "—"} · ${rec.layout?.region || "unclassified"} · layout year ${rec.layout?.year || "?"} · ${rec.review_status || ""}</span>`;
   } else {
     db.textContent='No ULAN match in this build.';
   }
@@ -509,11 +572,11 @@ function ensureImportedArtist(rec){
   );
   if(existing) return existing;
 
-  const yr=bestDisplayYear(rec);
-  const sameYear=artists.filter(a=>Math.abs((a.year||1350)-yr)<12).length;
-  const id='imported-'+(rec.wikidata?.qid || rec.seed_name.toLowerCase().replace(/[^a-z0-9]+/g,'-'));
-  const x=850 + ((sameYear%5)-2)*115;
-  const y=85 + ((yr-1280)/(1480-1280))*1050;
+  const yr=rec.layout?.year||1350;
+  const region=rec.layout?.region||"Unclassified Italy";
+  const id='ulan-'+(rec.ulan?.id || rec.seed_name.toLowerCase().replace(/[^a-z0-9]+/g,'-'));
+  const x=(regionX[region]||980);
+  const y=yForYear(yr);
   const a={
     id,
     name:rec.canonical_name||rec.seed_name,
@@ -539,7 +602,9 @@ async function loadImportedDatabase(){
       importedByName.set(String(rec.seed_name||'').toLowerCase(),rec);
       importedByName.set(String(rec.canonical_name||'').toLowerCase(),rec);
     });
-    document.getElementById('dataStatus').textContent=`${importedDatabase.count || importedDatabase.artists?.length || 0} ULAN seed records`;
+    materializeImportedGraph();
+    document.getElementById('dataStatus').textContent=`${importedDatabase.count || importedDatabase.artists?.length || 0} ULAN nodes loaded`;
+    render();
   }catch(e){
     document.getElementById('dataStatus').textContent='Artist database unavailable';
   }

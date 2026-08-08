@@ -1,48 +1,28 @@
-# Trecento Network v0.5.1 — Getty ULAN reconciliation proof of concept
+# Trecento Network v0.5.2 — materialized ULAN proof dataset
 
-This revision replaces the failed one-shot SPARQL name query with Getty's
-**Vocabulary Reconciliation Service**, which is specifically intended to match
-text strings such as artist names to ULAN records.
+This is intentionally a scale/layout test before expanding beyond the current curated 62-name seed population.
 
-## Crawl behavior
+## New behavior
 
-- ULAN only
-- 62 curated seed names
-- batches of 10 names
-- one reconciliation POST per batch
-- 500 ms pause between batches
-- retry/backoff for HTTP 429 and 503
-- candidate results are stored with ULAN ID, label, score, exact-match flag and up to five candidates
+1. Reconcile all 62 seed names against Getty ULAN.
+2. Fetch each matched ULAN display record.
+3. Derive a layout year from the early ULAN record/biography text.
+4. Derive a broad regional cluster from ULAN descriptors:
+   Florence, Siena, Veneto, Bologna, Rimini, Rome, Naples, or Unclassified Italy.
+5. Parse explicit ULAN teacher/student and a small number of direct-association relationship types.
+6. Keep only ULAN relationships whose other endpoint is also in this 62-artist proof population.
+7. Materialize all 62 records as actual graph nodes.
 
-No Wikipedia, Wikidata or Wikimedia Commons requests occur during deployment.
+## Important limitations
 
-## Important scholarly safeguard
+This is a visualization proof of concept, not final scholarly normalization.
 
-Getty's reconciliation workflow itself is semi-automated. A candidate ULAN match
-is therefore recorded as `ulan_candidate`, not silently treated as verified identity.
+- ULAN reconciliation candidates remain reviewable.
+- Region extraction is intentionally broad.
+- A record with insufficient geographic description goes to `Unclassified Italy`.
+- Birth/death/activity dates are reduced to one approximate layout year solely to position the node.
+- Activity overlays are NOT inferred from birthplace/death place.
+- Only explicit ULAN relationship labels generate new edges.
+- No Wikipedia/Wikidata/Commons ingestion occurs during the crawl.
 
-## Crawl telemetry
-
-The **Crawl status** drawer is now scrollable and shows:
-- source endpoint
-- duration
-- batch count
-- request count
-- matches/unmatched
-- retries and throttles
-- batch-by-batch HTTP status/latency/errors
-- unmatched names
-
-This telemetry will become database tables once the proof of concept is stable.
-
-## Why reconciliation instead of SPARQL for discovery?
-
-SPARQL remains useful for retrieving structured fields from a known ULAN ID.
-Name-to-entity matching is a different problem. Getty provides the reconciliation
-service specifically for this use case, so the intended future flow is:
-
-1. Reconcile artist name → ULAN ID
-2. Store/review identity
-3. Retrieve structured ULAN fields for the known ID
-4. Later enrich slowly from Wikipedia/Wikidata
-5. Load Commons media only on artist selection
+The purpose of v0.5.2 is to expose whether 62 real ULAN-derived nodes look coherent enough to justify building the persistent database and expanding the crawler.

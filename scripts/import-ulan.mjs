@@ -4,93 +4,207 @@ const SEEDS = new URL("../data/seed-artists.json", import.meta.url);
 const OUT = new URL("../data/imported-artists.json", import.meta.url);
 const STATUS = new URL("../data/crawl-status.json", import.meta.url);
 const RECONCILE = "https://services.getty.edu/vocab/reconcile/";
+const ULAN_PAGE = id => `https://vocab.getty.edu/page/ulan/${id}`;
 
 const BATCH_SIZE = 10;
-const BETWEEN_BATCH_MS = 500;
+const PAGE_CONCURRENCY = 5;
 
 const run = {
-  run_id: `ulan-reconcile-${Date.now()}`,
-  source: "Getty ULAN Reconciliation Service",
-  endpoint: RECONCILE,
-  started_at: new Date().toISOString(),
-  completed_at: null,
-  duration_ms: null,
-  requested_seed_count: 0,
-  matched_seed_count: 0,
-  unmatched_seed_count: 0,
-  request_count: 0,
-  batch_count: 0,
-  retries: 0,
-  throttles_429: 0,
-  service_503: 0,
-  other_http_errors: 0,
-  fatal_error: null,
-  unmatched_seeds: [],
-  batches: [],
-  notes: [
-    "Proof-of-concept ULAN-only ingestion using Getty's reconciliation service.",
-    "Wikipedia, Wikidata, and Commons are intentionally excluded from this crawl.",
-    "Results remain candidates pending review; reconciliation is not treated as fully automatic authority."
+  run_id:`ulan-materialize-${Date.now()}`,
+  source:"Getty ULAN",
+  started_at:new Date().toISOString(),
+  completed_at:null,
+  duration_ms:null,
+  requested_seed_count:0,
+  matched_seed_count:0,
+  detail_pages_requested:0,
+  detail_pages_ok:0,
+  request_count:0,
+  retries:0,
+  throttles_429:0,
+  service_503:0,
+  other_http_errors:0,
+  fatal_error:null,
+  region_counts:{},
+  relationship_count:0,
+  notes:[
+    "ULAN reconciliation plus ULAN record-page enrichment.",
+    "Node chronology/region are derived from ULAN display data for layout testing.",
+    "Only explicit teacher/student/workshop-like ULAN relations create edges."
   ]
 };
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
-async function postQueries(queries, attempt=0){
-  run.request_count += 1;
-  const body = new URLSearchParams();
-  body.set("queries", JSON.stringify(queries));
-
-  const t0 = Date.now();
-  const r = await fetch(RECONCILE, {
-    method: "POST",
-    headers: {
-      "User-Agent": "TrecentoNetwork/0.5.1 ULAN reconciliation proof-of-concept",
-      "Accept": "application/json",
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
-    },
-    body
+async function request(url, options={}, attempt=0){
+  run.request_count++;
+  const r=await fetch(url,{
+    ...options,
+    headers:{
+      "User-Agent":"TrecentoNetwork/0.5.2 materialization proof-of-concept",
+      ...(options.headers||{})
+    }
   });
-  const latency_ms = Date.now() - t0;
-
-  if(r.status === 429 || r.status === 503){
-    if(r.status === 429) run.throttles_429 += 1;
-    if(r.status === 503) run.service_503 += 1;
-    if(attempt >= 5) throw new Error(`${r.status} ${r.statusText} after retries`);
-    run.retries += 1;
-    const retryAfter = Number(r.headers.get("retry-after"));
-    const delay = Number.isFinite(retryAfter) && retryAfter > 0
-      ? retryAfter * 1000
-      : Math.min(30000, 1200 * (2 ** attempt));
+  if(r.status===429 || r.status===503){
+    if(r.status===429) run.throttles_429++;
+    if(r.status===503) run.service_503++;
+    if(attempt>=5) throw new Error(`${r.status} ${r.statusText} after retries`);
+    run.retries++;
+    const ra=Number(r.headers.get("retry-after"));
+    const delay=Number.isFinite(ra)&&ra>0 ? ra*1000 : Math.min(20000,800*(2**attempt));
     await sleep(delay);
-    return postQueries(queries, attempt + 1);
+    return request(url,options,attempt+1);
   }
-
   if(!r.ok){
-    run.other_http_errors += 1;
+    run.other_http_errors++;
     throw new Error(`${r.status} ${r.statusText}`);
   }
-
-  return {json: await r.json(), latency_ms, status:r.status};
+  return r;
 }
 
-function chunk(arr,n){
+function chunk(a,n){const o=[];for(let i=0;i<a.length;i+=n)o.push(a.slice(i,i+n));return o;}
+
+async function reconcile(names){
+  const result=new Map();
+  for(const batch of chunk(names,BATCH_SIZE)){
+    const queries={};
+    batch.forEach((name,i)=>queries[`q${i}`]={query:name,type:"/ulan"});
+    const body=new URLSearchParams();
+    body.set("queries",JSON.stringify(queries));
+    const r=await request(RECONCILE,{
+      method:"POST",
+      headers:{
+        "Accept":"application/json",
+        "Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"
+      },
+      body
+    });
+    const j=await r.json();
+    batch.forEach((name,i)=>{
+      const candidates=(j?.[`q${i}`]?.result||[]).map(x=>({
+        id:String(x.id||"").split("/").pop()||null,
+        name:x.name||null,
+        score:typeof x.score==="number"?x.score:null,
+        match:Boolean(x.match)
+      }));
+      result.set(name,candidates);
+    });
+    await sleep(250);
+  }
+  return result;
+}
+
+function decodeHtml(s){
+  return String(s||"")
+    .replace(/<script[\s\S]*?<\/script>/gi," ")
+    .replace(/<style[\s\S]*?<\/style>/gi," ")
+    .replace(/<[^>]+>/g," ")
+    .replace(/&nbsp;|&#160;/gi," ")
+    .replace(/&amp;/gi,"&")
+    .replace(/&quot;/gi,'"')
+    .replace(/&#39;|&apos;/gi,"'")
+    .replace(/&ndash;|&#8211;/gi,"–")
+    .replace(/&mdash;|&#8212;/gi,"—")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function deriveRegion(text){
+  const t=text.toLowerCase();
+  if(/\bvenetian\b|\bvenice\b/.test(t)) return "Veneto";
+  if(/\bflorentine\b|\bflorence\b/.test(t)) return "Florence";
+  if(/\bsienese\b|\bsiena\b/.test(t)) return "Siena";
+  if(/\bbolognese\b|\bbologna\b/.test(t)) return "Bologna";
+  if(/\brimini\b|\briminese\b/.test(t)) return "Rimini";
+  if(/\bpadua\b|\bpaduan\b|\bpadova\b/.test(t)) return "Veneto";
+  if(/\brome\b|\broman\b/.test(t)) return "Rome";
+  if(/\bnaples\b|\bneapolitan\b/.test(t)) return "Naples";
+  return "Unclassified Italy";
+}
+
+function deriveYear(text){
+  // Use the early record/biography text only so source/publication dates do not contaminate chronology.
+  const recordIdx=text.indexOf("Record Type:");
+  let section=recordIdx>=0 ? text.slice(recordIdx,recordIdx+1600) : text.slice(0,1600);
+
+  // Handle "active 1341-1347", "1266-1337", "ca. 1300-after 1360", etc.
+  const years=[...section.matchAll(/\b(12\d{2}|13\d{2}|14\d{2})\b/g)].map(m=>Number(m[1]));
+  if(years.length>=2){
+    const a=years[0], b=years[1];
+    if(Math.abs(b-a)<=180) return Math.round((a+b)/2);
+  }
+  if(years.length===1) return years[0];
+  return 1350;
+}
+
+function extractSummary(text){
+  const m=text.match(/Record Type:\s*(?:Person|Corporate Body)\s+(.{1,260}?)(?:\s+Note:|\s+Names:)/i);
+  return m ? m[1].trim() : null;
+}
+
+function extractRelationships(text,currentId){
   const out=[];
-  for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n));
+  // The Getty display renders relations such as:
+  // "student of .... Cimabue ... [500016284]" and "teacher of .... Daddi, Bernardo ... [500004953]"
+  const rx=/(student of|teacher of|employee was|member of|worked with|partner of|collaborated with|influenced by|influenced)\s*\.{0,12}\s*([^[]]{1,180}?)\s*\[(5\d{8})\]/gi;
+  for(const m of text.matchAll(rx)){
+    const type=m[1].toLowerCase();
+    const relatedId=m[3];
+    const relatedLabel=m[2].replace(/\([^)]*\)\s*$/,"").replace(/\.+/g," ").trim();
+    let direction="undirected",style="dashed",meaning=type;
+    if(type==="student of"){
+      direction="related_to_current"; style="solid"; meaning="pupil / workshop";
+    }else if(type==="teacher of" || type==="employee was"){
+      direction="current_to_related"; style="solid"; meaning="pupil / workshop";
+    }else if(type.includes("influenc") || type.includes("worked") || type.includes("collabor") || type.includes("partner")){
+      style="dashed"; meaning="collaborator / direct influence";
+    }
+    out.push({current_id:currentId,related_id:relatedId,related_label:relatedLabel,type,direction,style,meaning});
+  }
   return out;
 }
 
-function normalizeResult(result){
-  const idRaw = result?.id || "";
-  const id = idRaw.includes("/") ? idRaw.split("/").pop() : idRaw || null;
-  return {
-    ulan_id: id,
-    ulan_uri: id ? `http://vocab.getty.edu/ulan/${id}` : null,
-    ulan_label: result?.name || null,
-    score: typeof result?.score === "number" ? result.score : null,
-    exact_match: Boolean(result?.match),
-    types: result?.type || []
-  };
+async function enrichOne(base){
+  if(!base.ulan.id) return base;
+  run.detail_pages_requested++;
+  try{
+    const r=await request(ULAN_PAGE(base.ulan.id),{headers:{"Accept":"text/html"}});
+    const html=await r.text();
+    const text=decodeHtml(html);
+    run.detail_pages_ok++;
+    const region=deriveRegion(text);
+    run.region_counts[region]=(run.region_counts[region]||0)+1;
+    return {
+      ...base,
+      ulan:{
+        ...base.ulan,
+        page_url:ULAN_PAGE(base.ulan.id),
+        summary:extractSummary(text)
+      },
+      layout:{
+        year:deriveYear(text),
+        region
+      },
+      relationships:extractRelationships(text,base.ulan.id)
+    };
+  }catch(e){
+    return {...base,layout:{year:1350,region:"Unclassified Italy"},relationships:[],detail_error:e.message};
+  }
+}
+
+async function mapLimit(items,limit,fn){
+  const results=new Array(items.length);
+  let next=0;
+  async function worker(){
+    while(true){
+      const i=next++;
+      if(i>=items.length) return;
+      results[i]=await fn(items[i],i);
+      await sleep(120);
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(limit,items.length)},()=>worker()));
+  return results;
 }
 
 async function main(){
@@ -99,84 +213,67 @@ async function main(){
   const names=seed.artists.map(x=>x.seed_name);
   run.requested_seed_count=names.length;
 
-  const resultByName=new Map();
-  const batches=chunk(names,BATCH_SIZE);
-  run.batch_count=batches.length;
-
-  for(let bi=0; bi<batches.length; bi++){
-    const batch=batches[bi];
-    const queries={};
-    batch.forEach((name,i)=>{
-      queries[`q${i}`]={query:name,type:"/ulan"};
-    });
-
-    const batchLog={
-      batch_index:bi+1,
-      names:batch,
-      status:null,
-      latency_ms:null,
-      error:null
-    };
-
-    try{
-      const {json,latency_ms,status}=await postQueries(queries);
-      batchLog.status=status;
-      batchLog.latency_ms=latency_ms;
-
-      batch.forEach((name,i)=>{
-        const list=json?.[`q${i}`]?.result || [];
-        resultByName.set(name,list.map(normalizeResult));
-      });
-    }catch(e){
-      batchLog.error=e.message;
-      batch.forEach(name=>resultByName.set(name,[]));
-    }
-
-    run.batches.push(batchLog);
-    if(bi < batches.length-1) await sleep(BETWEEN_BATCH_MS);
-  }
-
-  const artists=names.map(name=>{
-    const candidates=resultByName.get(name) || [];
-    if(!candidates.length) run.unmatched_seeds.push(name);
-    const best=candidates[0] || null;
+  const rec=await reconcile(names);
+  let artists=names.map(name=>{
+    const c=rec.get(name)||[];
+    const best=c[0]||null;
     return {
       seed_name:name,
-      canonical_name:best?.ulan_label || name,
+      canonical_name:best?.name||name,
       ulan:{
-        id:best?.ulan_id || null,
-        uri:best?.ulan_uri || null,
-        score:best?.score ?? null,
-        exact_match:best?.exact_match ?? false,
-        candidates:candidates.slice(0,5)
+        id:best?.id||null,
+        uri:best?.id?`http://vocab.getty.edu/ulan/${best.id}`:null,
+        score:best?.score??null,
+        exact_match:best?.match??false,
+        candidates:c.slice(0,5)
       },
-      review_status:best ? "ulan_candidate" : "ulan_unmatched"
+      review_status:best?"ulan_candidate":"ulan_unmatched"
     };
   });
-
   run.matched_seed_count=artists.filter(x=>x.ulan.id).length;
-  run.unmatched_seed_count=artists.length-run.matched_seed_count;
+
+  artists=await mapLimit(artists,PAGE_CONCURRENCY,enrichOne);
+
+  // Keep only relationships whose related ULAN ID is also in our 62-record proof dataset.
+  const ids=new Set(artists.map(a=>a.ulan.id).filter(Boolean));
+  const graphRelationships=[];
+  const seen=new Set();
+  for(const a of artists){
+    for(const rel of a.relationships||[]){
+      if(!ids.has(rel.related_id)) continue;
+      let from,to;
+      if(rel.direction==="related_to_current"){from=rel.related_id;to=a.ulan.id;}
+      else if(rel.direction==="current_to_related"){from=a.ulan.id;to=rel.related_id;}
+      else {from=a.ulan.id;to=rel.related_id;}
+      const key=[from,to,rel.style].join("|");
+      const rev=[to,from,rel.style].join("|");
+      if(seen.has(key)||seen.has(rev)) continue;
+      seen.add(key);
+      graphRelationships.push({from_ulan:from,to_ulan:to,style:rel.style,meaning:rel.meaning,source:"Getty ULAN"});
+    }
+  }
+  run.relationship_count=graphRelationships.length;
+
   run.completed_at=new Date().toISOString();
   run.duration_ms=Date.now()-t0;
 
   await fs.writeFile(OUT,JSON.stringify({
     generated_at:run.completed_at,
-    source:"Getty ULAN Reconciliation Service",
+    source:"Getty ULAN",
     count:artists.length,
-    note:"Candidate identity matches only. No Wikipedia/Wikidata/Commons calls and no automatically asserted art-historical relationships.",
-    artists
+    note:"Proof dataset. Node chronology/region are ULAN-derived layout metadata; explicit ULAN relations only.",
+    artists,
+    relationships:graphRelationships
   },null,2));
-
   await fs.writeFile(STATUS,JSON.stringify(run,null,2));
 
-  console.log(`ULAN reconciliation: ${run.matched_seed_count}/${run.requested_seed_count} seeds have candidates.`);
-  console.log(`Batches: ${run.batch_count}; requests: ${run.request_count}; retries: ${run.retries}; 429s: ${run.throttles_429}; duration: ${run.duration_ms}ms`);
+  console.log(`Materialized ${artists.length} ULAN candidates; ${graphRelationships.length} internal ULAN relationships.`);
+  console.log(`Detail pages ${run.detail_pages_ok}/${run.detail_pages_requested}; total ${run.duration_ms}ms.`);
 }
 
 main().catch(async e=>{
   run.fatal_error=e.message;
   run.completed_at=new Date().toISOString();
   try{await fs.writeFile(STATUS,JSON.stringify(run,null,2));}catch{}
-  console.error(e);
-  process.exit(1);
+  console.error(e); process.exit(1);
 });
