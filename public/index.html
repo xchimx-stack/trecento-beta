@@ -114,7 +114,7 @@
     <div>━━▶ pupil / workshop (directional when known)</div>
     <div>– –▶ direct influence; – – collaboration if undirected</div>
     <div>····▶ parent→child / directional influence; ···· family if undirected</div>
-    <div style="margin-top:4px">soft wash = selected artist’s activity in that regional/time field · light red = selected artist · up to 9 strongest minor connections appear · ADDITIONAL opens the rest · time runs top → bottom</div>
+    <div style="margin-top:4px"></div>
   </div>
 
   <svg id="canvas" viewBox="0 0 1600 1250" aria-label="Trecento artist network mockup">
@@ -167,7 +167,7 @@
       <div class="section">
         <h3>Method</h3>
         <div class="row" style="border-top:0;color:#777">
-          ULAN-derived nodes use vertical chronology and elastic regional territories. Family relationships default to dotted general influence; documented training/workshop relations upgrade to solid and direct artistic associations to dashed.
+          ULAN-derived nodes use vertical chronology with regional fallback overrides for layout. Parent→child is parsed as a dotted directional baseline influence; a few known family links still use temporary manual fallbacks where Getty display parsing misses them.
         </div>
       </div>
     </div>
@@ -257,9 +257,66 @@ let importedGraphLoaded=false;
 
 
 
+
+const regionOverrides={
+  "lorenzo di niccolò":"Florence",
+  "lorenzo di niccolo":"Florence",
+  "niccolò di pietro gerini":"Florence",
+  "niccolo di pietro gerini":"Florence",
+  "master of the dominican effigies":"Florence",
+  "master of the saint cecilia altarpiece":"Florence",
+  "master of the codex of saint george":"Florence",
+  "master of the legend of the magdalen":"Florence",
+  "master of the magdalene":"Florence",
+  "stefano fiorentino":"Florence",
+  "maso di banco":"Florence",
+  "puccio capanna":"Florence",
+  "pacino di buonaguida":"Florence",
+  "jacopo del casentino":"Florence",
+  "giovanni da milano":"Florence",
+  "giottino":"Florence",
+  "mariotto di nardo":"Florence",
+  "nardo di cione":"Florence",
+  "jacopo di cione":"Florence",
+  "andrea di cione":"Florence",
+  "orcagna":"Florence",
+  "gherardo starnina":"Florence",
+  "cenni di francesco":"Florence",
+  "spinello aretino":"Florence",
+  "andrea bonaiuti":"Florence",
+  "francesco traini":"Pisa",
+  "buonamico buffalmacco":"Florence",
+  "lippo memmi":"Siena",
+  "barna da siena":"Siena",
+  "bartolo di fredi":"Siena",
+  "andrea vanni":"Siena",
+  "taddeo di bartolo":"Siena",
+  "niccolò di segna":"Siena",
+  "niccolo di segna":"Siena",
+  "segna di bonaventura":"Siena",
+  "ugolino di nerio":"Siena",
+  "meo da siena":"Siena",
+  "lorenzo veneziano":"Veneto",
+  "jacobello del fiore":"Veneto",
+  "guariento di arpo":"Veneto",
+  "giusto de' menabuoi":"Veneto",
+  "altichiero da zevio":"Veneto",
+  "vitale da bologna":"Bologna",
+  "simone dei crocifissi":"Bologna",
+  "dalmasio scannabecchi":"Bologna",
+  "giovanni da rimini":"Rimini",
+  "pietro da rimini":"Rimini",
+  "giuliano da rimini":"Rimini"
+};
+
+function normalizedName(rec){
+  return String(rec.canonical_name||rec.seed_name||"").toLowerCase().trim();
+}
+
 const anchorSpecs={
   "Florence":{name:"Giotto",x:430},
   "Siena":{name:"Duccio",x:980},
+  "Pisa":{name:null,x:1260},
   "Rome":{name:"Pietro Cavallini",x:1510},
   "Bologna":{name:"Vitale da Bologna",x:2020},
   "Rimini":{name:"Giovanni da Rimini",x:2470},
@@ -276,7 +333,21 @@ function yForYear(year){
 
 function regionForRecord(rec){
   if(rec.anchor_region) return rec.anchor_region;
-  return rec.layout?.region || "Unclassified Italy";
+
+  const override=regionOverrides[normalizedName(rec)];
+  if(override) return override;
+
+  const raw=rec.layout?.region || "Unclassified Italy";
+  if(raw!=="Unclassified Italy") return raw;
+
+  // One-degree anchor discoveries inherit the anchor's regional field only
+  // as a layout fallback, not as a historical claim.
+  if(rec.discovered_from_anchor){
+    const parentRec=(importedDatabase.artists||[]).find(x=>x.ulan?.id===rec.discovered_from_anchor);
+    if(parentRec?.anchor_region) return parentRec.anchor_region;
+  }
+
+  return "Unclassified Italy";
 }
 
 function materializeImportedGraph(){
@@ -294,7 +365,7 @@ function materializeImportedGraph(){
   let cursor=220;
   const regionCenters={};
   const regionWidths={};
-  const regionOrder=["Florence","Siena","Rome","Bologna","Rimini","Veneto","Naples","Unclassified Italy"];
+  const regionOrder=["Florence","Siena","Pisa","Rome","Bologna","Rimini","Veneto","Naples","Unclassified Italy"];
 
   for(const region of regionOrder){
     const count=(byRegion[region]||[]).length;
@@ -482,6 +553,30 @@ function addManualFamilyFallbacks(){
       });
     }
   }
+
+  // ULAN lists Mariotto di Nardo as child of Nardo di Cione.
+  // Treat parent -> child as directional dotted baseline influence.
+  const mariotto=findBy(["mariotto","nardo"]);
+  if(nardo && mariotto){
+    const existing=relationships.find(r=>
+      (r[0]===nardo.id&&r[1]===mariotto.id)||(r[0]===mariotto.id&&r[1]===nardo.id)
+    );
+    if(!existing) relationships.push([nardo.id,mariotto.id,"dotted","general influence"]);
+
+    const key=[nardo.id,mariotto.id].sort().join("|");
+    relationshipMeta.set(key,{
+      directed:true,
+      from:nardo.id,
+      to:mariotto.id,
+      style:"dotted",
+      meaning:"general influence",
+      evidence:[{
+        source:"Getty ULAN / manual parser fallback",
+        source_relation:"parent/child",
+        evidence_class:"family_parent_child"
+      }]
+    });
+  }
 }
 
 function optimizeConnectionLayout(){
@@ -553,9 +648,15 @@ function scaleNodesByConnectivity(){
 
   for(const a of artists){
     const d=degree.get(a.id)||0;
-    // Normal nodes remain compact; network hubs grow visibly.
     const connectivityImportance=.80 + Math.min(.95,d*.105);
     a.importance=Math.max(a.importance||.8,connectivityImportance);
+
+    // An unclassified, completely isolated artist remains in search/database
+    // but is treated as minor in the overview until metadata improves.
+    if(a.school==="Unclassified Italy" && d===0 && !a.full.toLowerCase().includes("master of")){
+      a.minor=true;
+      a.revealWith=a.revealWith||[];
+    }
   }
 }
 
@@ -733,8 +834,16 @@ function selectArtist(id, center=false){
   populateDrawer(a);
   drawer.classList.add('open');
   document.getElementById('overflowDrawer').classList.remove('open');
-  if(center) focusOn(a.x,a.y);
-  render();
+
+  // Wait until the drawer state has applied, then pan without changing zoom.
+  if(center){
+    requestAnimationFrame(()=>{
+      focusOn(a.x,a.y);
+      render();
+    });
+  }else{
+    render();
+  }
 }
 
 function populateDrawer(a){
@@ -761,22 +870,31 @@ function populateDrawer(a){
 
 function focusOn(x,y,scaleIgnored){
   const rect=canvas.getBoundingClientRect();
-  const viewBoxWidth=1600, viewBoxHeight=1250;
-  const leftSafePx = drawer.classList.contains('open') ? 410 : 55;
-  const rightSafePx = document.getElementById('overflowDrawer').classList.contains('open') ? 335 : 55;
-  const topSafePx=75, bottomSafePx=55;
+  const vb=canvas.viewBox.baseVal;
+  const viewBoxWidth=vb.width || 1600;
+  const viewBoxHeight=vb.height || 1250;
 
-  const leftSafe=(leftSafePx/rect.width)*viewBoxWidth;
-  const rightSafe=viewBoxWidth-(rightSafePx/rect.width)*viewBoxWidth;
-  const topSafe=(topSafePx/rect.height)*viewBoxHeight;
-  const bottomSafe=viewBoxHeight-(bottomSafePx/rect.height)*viewBoxHeight;
+  // Preserve the user's current zoom. Only pan.
+  const drawerVisible=drawer.classList.contains('open');
+  const overflowVisible=document.getElementById('overflowDrawer')?.classList.contains('open');
 
-  const screenX=x*state.scale+state.tx;
-  const screenY=y*state.scale+state.ty;
-  if(screenX<leftSafe) state.tx += leftSafe-screenX+35;
-  if(screenX>rightSafe) state.tx -= screenX-rightSafe+35;
-  if(screenY<topSafe) state.ty += topSafe-screenY+25;
-  if(screenY>bottomSafe) state.ty -= screenY-bottomSafe+25;
+  const leftPx=drawerVisible ? 18+350+34 : 28;
+  const rightPx=overflowVisible ? 18+300+34 : 28;
+  const topPx=74;
+  const bottomPx=34;
+
+  // Convert browser-pixel safe areas into SVG/viewBox coordinates.
+  const leftSvg=(leftPx/rect.width)*viewBoxWidth;
+  const rightSvg=viewBoxWidth-(rightPx/rect.width)*viewBoxWidth;
+  const topSvg=(topPx/rect.height)*viewBoxHeight;
+  const bottomSvg=viewBoxHeight-(bottomPx/rect.height)*viewBoxHeight;
+
+  // Put the selected node at the center of the unobstructed visible canvas.
+  const targetX=leftSvg+(rightSvg-leftSvg)/2;
+  const targetY=topSvg+(bottomSvg-topSvg)/2;
+
+  state.tx=targetX-x*state.scale;
+  state.ty=targetY-y*state.scale;
 }
 
 function overview(){
